@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Elegantly\Media\Concerns;
 
+use Elegantly\Media\Compat\MediaCollectionBuilder;
+use Elegantly\Media\Compat\PendingMediaAdder;
 use Elegantly\Media\Events\MediaAddedEvent;
 use Elegantly\Media\Exceptions\InvalidMimeTypeException;
 use Elegantly\Media\Helpers\File as HelpersFile;
@@ -15,6 +17,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Http\File;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 
 /**
@@ -73,6 +76,11 @@ trait HasMedia
 
     public function getMediaCollection(string $collectionName): ?MediaCollection
     {
+        // Check builder-based collections first (Spatie compat)
+        if ($builderCollection = $this->getMediaCollectionFromBuilders($collectionName)) {
+            return $builderCollection;
+        }
+
         return collect($this->registerMediaCollections())->firstWhere('name', $collectionName);
     }
 
@@ -294,4 +302,74 @@ trait HasMedia
                 return $media->deleteConversion($conversionName);
             });
     }
+
+    // Spatie Compatibility Shim -------------------------------------------------------------------
+
+    /**
+     * @var array<string, MediaCollectionBuilder>
+     */
+    private array $_collectionBuilders = [];
+
+    /**
+     * Spatie-compatible: addMediaFromUrl($url)->usingName('cover')->toMediaCollection('covers')
+     */
+    public function addMediaFromUrl(string $url): PendingMediaAdder
+    {
+        return new PendingMediaAdder($this, $url);
+    }
+
+    /**
+     * Spatie-compatible: addMediaFromDisk($path, $disk)->toMediaCollection('videos')
+     */
+    public function addMediaFromDisk(string $path, string $disk): PendingMediaAdder
+    {
+        $storage = \Illuminate\Support\Facades\Storage::disk($disk);
+        $localPath = $storage->path($path);
+
+        return new PendingMediaAdder($this, new File($localPath));
+    }
+
+    /**
+     * Spatie-compatible: addMediaFromRequest('image')->toMediaCollection('photos')
+     */
+    public function addMediaFromRequest(string $key, ?Request $request = null): PendingMediaAdder
+    {
+        $request ??= request();
+        $file = $request->file($key);
+
+        return new PendingMediaAdder($this, $file);
+    }
+
+    /**
+     * Spatie-compatible fluent collection builder.
+     * Usage: $this->addMediaCollection('avatar')->useDisk('s3')->singleFile();
+     *
+     * Collections built this way are automatically resolved via getMediaCollection().
+     */
+    public function addMediaCollection(string $name): MediaCollectionBuilder
+    {
+        $builder = new MediaCollectionBuilder($name);
+        $this->_collectionBuilders[$name] = $builder;
+
+        return $builder;
+    }
+
+    /**
+     * Resolve collection: check builder-based collections first, then declarative ones.
+     */
+    public function getMediaCollectionFromBuilders(string $collectionName): ?MediaCollection
+    {
+        // Ensure builders are populated (registerMediaCollections fills _collectionBuilders via addMediaCollection)
+        if (empty($this->_collectionBuilders)) {
+            $this->registerMediaCollections();
+        }
+
+        if (isset($this->_collectionBuilders[$collectionName])) {
+            return $this->_collectionBuilders[$collectionName]->build();
+        }
+
+        return null;
+    }
+
+    // \ Spatie Compatibility Shim -----------------------------------------------------------------
 }

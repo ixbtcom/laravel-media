@@ -31,6 +31,7 @@ use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Http\File as HttpFile;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -1039,4 +1040,55 @@ class Media extends Model
     }
 
     // End attributes getters ----------------------------------------------------------------------
+
+    // Spatie Compatibility Shim -------------------------------------------------------------------
+
+    /**
+     * Get a custom property value (Spatie-compatible).
+     * Maps to elegantly's `metadata` JSON column using dot notation.
+     *
+     * @param  mixed  $default
+     * @return mixed
+     */
+    public function getCustomProperty(string $name, $default = null)
+    {
+        return data_get($this->metadata, $name, $default);
+    }
+
+    /**
+     * Set a custom property value (Spatie-compatible).
+     *
+     * @param  mixed  $value
+     */
+    public function setCustomProperty(string $name, $value): static
+    {
+        $metadata = $this->metadata ?? [];
+        data_set($metadata, $name, $value);
+        $this->metadata = $metadata;
+
+        return $this;
+    }
+
+    /**
+     * Accessor: $media->custom_properties maps to metadata (Spatie-compatible).
+     *
+     * @return Attribute<array<string, mixed>|null, array<string, mixed>|null>
+     */
+    protected function customProperties(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->metadata,
+            set: fn ($value) => ['metadata' => $value],
+        );
+    }
+
+    /**
+     * Get the full URL (Spatie-compatible alias for getUrl).
+     */
+    public function getFullUrl(string $conversion = ''): ?string
+    {
+        return $this->getUrl($conversion ?: null);
+    }
+
+    // \ Spatie Compatibility Shim -----------------------------------------------------------------
 }

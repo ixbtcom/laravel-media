@@ -1,12 +1,12 @@
 {
-    "name": "elegantly/laravel-media",
-    "description": "A flexible media library for Laravel",
+    "name": "ixbtcom/laravel-media",
+    "description": "A flexible media library for Laravel (fork of elegantly/laravel-media)",
     "keywords": [
-        "Elegantly",
+        "ixbtcom",
         "laravel",
         "laravel-media"
     ],
-    "homepage": "https://github.com/ElegantEngineeringTech/laravel-media",
+    "homepage": "https://github.com/ixbtcom/laravel-media",
     "license": "MIT",
     "authors": [
         {
@@ -21,7 +21,6 @@
         "maennchen/zipstream-php": "^3.1",
         "spatie/image": "^3.0.0",
         "spatie/laravel-package-tools": "^1.14.0",
-        "spatie/pdf-to-image": "^3.1",
         "spatie/temporary-directory": "^2.2"
     },
     "require-dev": {
