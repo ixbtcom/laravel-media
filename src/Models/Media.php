@@ -171,6 +171,7 @@ class Media extends Model
         // Ensure the model has an ID before generating the path
         // (IdPathGenerator uses auto-increment ID as directory name)
         if (! $this->exists && $destination === null) {
+            $this->size ??= 0;
             $this->save();
         }
 
