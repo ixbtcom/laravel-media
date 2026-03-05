@@ -168,6 +168,12 @@ class Media extends Model
         /** @var class-string<AbstractPathGenerator> */
         $pathGenerator = config('media.default_path_generator');
 
+        // Ensure the model has an ID before generating the path
+        // (IdPathGenerator uses auto-increment ID as directory name)
+        if (! $this->exists && $destination === null) {
+            $this->save();
+        }
+
         $destination ??= (new $pathGenerator)->media($this)->value();
         $name ??= File::name($file) ?? Str::random(6);
         $disk ??= config()->string('media.disk', config()->string('filesystems.default', 'local'));
