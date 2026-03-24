@@ -85,6 +85,7 @@ class Media extends Model
     {
         static::deleting(function (Media $media) {
 
+            $media->loadMissing('conversions');
             $media->conversions->each(fn ($conversion) => $conversion->delete());
 
             $media->deleteFile();
@@ -1074,19 +1075,6 @@ class Media extends Model
         $this->metadata = $metadata;
 
         return $this;
-    }
-
-    /**
-     * Accessor: $media->custom_properties maps to metadata (Spatie-compatible).
-     *
-     * @return Attribute<array<string, mixed>|null, array<string, mixed>|null>
-     */
-    protected function customProperties(): Attribute
-    {
-        return Attribute::make(
-            get: fn () => $this->metadata,
-            set: fn ($value) => ['metadata' => $value],
-        );
     }
 
     /**
