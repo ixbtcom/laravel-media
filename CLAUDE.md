@@ -84,3 +84,9 @@ composer lint          # Pint + PHPStan
 - **ThumborUrlFormatter** использует `Ixbtcom\Common\Services\ImageService` через string-резолв из контейнера (без hard dependency)
 - **BunnyStream**: `IdPathGenerator` поддерживает диск `bunny_stream` — путь берётся из `metadata.bunny_media_id`
 - **Metadata path**: если в `metadata.path` есть значение, `IdPathGenerator` использует его напрямую (для мигрированных файлов)
+
+---
+
+## DeepSeek delegation (synced)
+
+@~/code/claude/snippets/deepseek-routing.md
