@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Elegantly\Media\Exceptions\UnresolvableMediaUrlException;
 use Elegantly\Media\Jobs\DeleteModelMediaJob;
 use Elegantly\Media\MediaCollection;
 use Elegantly\Media\Tests\Models\TestCollections;
@@ -99,6 +100,73 @@ it('adds a new media to the specified collection group', function () {
     expect($media->collection_name)->toBe('multiple');
     expect($media->collection_group)->toBe('group');
 });
+
+it('creates and reuses media from a permanent url without storing a file', function () {
+    config()->set('media.url_disk_aliases', [
+        'https://cdn.example.com/bucket' => 'media',
+    ]);
+
+    Storage::fake('media');
+
+    $model = new TestCollections;
+    $model->save();
+
+    $media = $model->createMediaFromUrl(
+        url: 'https://cdn.example.com/bucket/articles/cover.jpg',
+        collectionName: 'multiple',
+        metadata: ['source' => 'editorjs'],
+        attributes: [
+            'width' => 1600,
+            'height' => 900,
+            'mime_type' => 'image/jpeg',
+        ],
+    );
+
+    $sameMedia = $model->createMediaFromUrl(
+        url: 'https://cdn.example.com/bucket/articles/cover.jpg',
+        collectionName: 'multiple',
+    );
+
+    expect($sameMedia->is($media))->toBeTrue()
+        ->and($model->media()->count())->toBe(1)
+        ->and($media->model_id)->toBe($model->id)
+        ->and($media->collection_name)->toBe('multiple')
+        ->and($media->collection_group)->toBeNull()
+        ->and($media->disk)->toBe('media')
+        ->and($media->path)->toBe('articles/cover.jpg')
+        ->and($media->file_name)->toBe('cover.jpg')
+        ->and($media->name)->toBe('cover')
+        ->and($media->extension)->toBe('jpg')
+        ->and($media->mime_type)->toBe('image/jpeg')
+        ->and($media->size)->toBe(0)
+        ->and($media->width)->toBe(1600)
+        ->and($media->height)->toBe(900)
+        ->and($media->aspect_ratio)->toBe(1.78)
+        ->and($media->metadata)->toBe([
+            'source' => 'editorjs',
+            'source_url' => 'https://cdn.example.com/bucket/articles/cover.jpg',
+        ]);
+
+    Storage::disk('media')->assertMissing('articles/cover.jpg');
+});
+
+it('rejects urls that do not resolve to a permanent disk and path', function (string $url) {
+    config()->set('media.url_disk_aliases', [
+        'https://cdn.example.com/bucket' => 'media',
+    ]);
+
+    Storage::fake('media');
+
+    $model = new TestCollections;
+    $model->save();
+
+    expect(fn () => $model->createMediaFromUrl($url, 'multiple'))
+        ->toThrow(UnresolvableMediaUrlException::class)
+        ->and($model->media()->count())->toBe(0);
+})->with([
+    'temporary relative url' => '/storage/editorjs-tmp/cover.jpg',
+    'unknown external host' => 'https://images.example.org/cover.jpg',
+]);
 
 it('deletes old media when adding to single collection', function () {
     Storage::fake('media');

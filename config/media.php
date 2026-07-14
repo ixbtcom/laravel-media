@@ -75,6 +75,12 @@ return [
     'generated_path_prefix' => null,
 
     /**
+     * Additional public URL prefixes mapped to existing filesystem disks.
+     * Configured filesystems.disks.*.url values are included automatically.
+     */
+    'url_disk_aliases' => [],
+
+    /**
      * Queue connection name to use when dispatching media conversion jobs.
      */
     'queue_connection' => env('QUEUE_CONNECTION', 'sync'),

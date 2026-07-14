@@ -10,11 +10,12 @@ use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
 
 /**
- * @mixin \Illuminate\Database\Eloquent\Model
+ * @mixin Model
  *
  * @template TMedia of Media
  *
@@ -83,6 +84,19 @@ interface InteractWithMedia
     ): Media;
 
     /**
+     * @param  array<array-key, mixed>  $metadata
+     * @param  array<array-key, mixed>  $attributes
+     * @return TMedia
+     */
+    public function createMediaFromUrl(
+        string $url,
+        ?string $collectionName = null,
+        ?string $collectionGroup = null,
+        ?array $metadata = null,
+        array $attributes = [],
+    ): Media;
+
+    /**
      * @return $this
      */
     public function deleteMedia(int $mediaId): static;
@@ -98,7 +112,7 @@ interface InteractWithMedia
     ): static;
 
     /**
-     * @return \Illuminate\Support\Collection<int, \Illuminate\Foundation\Bus\PendingDispatch>
+     * @return \Illuminate\Support\Collection<int, PendingDispatch>
      */
     public function dispatchMediaConversion(
         string $conversionName,

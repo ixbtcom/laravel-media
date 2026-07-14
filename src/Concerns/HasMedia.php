@@ -12,16 +12,19 @@ use Elegantly\Media\Helpers\File as HelpersFile;
 use Elegantly\Media\Jobs\DeleteModelMediaJob;
 use Elegantly\Media\MediaCollection;
 use Elegantly\Media\Models\Media;
+use Elegantly\Media\Support\MediaUrlResolver;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Http\File;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 /**
- * @mixin \Illuminate\Database\Eloquent\Model
+ * @mixin Model
  *
  * @template TMedia of Media
  *
@@ -93,7 +96,7 @@ trait HasMedia
     ): Collection {
         return $this->media
             ->when($collectionName, fn ($collection) => $collection->where('collection_name', $collectionName))
-            ->when($collectionGroup, fn ($collection) => $collection->where('collection_group', $collectionGroup))
+            ->where('collection_group', $collectionGroup)
             ->values();
     }
 
@@ -204,6 +207,7 @@ trait HasMedia
         if ($collection?->single) {
             $this->clearMediaCollection(
                 collectionName: $collectionName,
+                collectionGroup: $collectionGroup,
                 except: [$media->id]
             );
         }
@@ -220,6 +224,67 @@ trait HasMedia
         }
 
         event(new MediaAddedEvent($media));
+
+        return $media;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $metadata
+     * @param  array<array-key, mixed>  $attributes
+     * @return TMedia
+     */
+    public function createMediaFromUrl(
+        string $url,
+        ?string $collectionName = null,
+        ?string $collectionGroup = null,
+        ?array $metadata = null,
+        array $attributes = [],
+    ): Media {
+        $collectionName ??= config('media.default_collection_name');
+        $resolvedUrl = app(MediaUrlResolver::class)->resolve($url);
+
+        $existingMedia = $this->media()
+            ->where('collection_name', $collectionName)
+            ->where('collection_group', $collectionGroup)
+            ->where('disk', $resolvedUrl['disk'])
+            ->where('path', $resolvedUrl['path'])
+            ->first();
+
+        if ($existingMedia) {
+            return $existingMedia;
+        }
+
+        /** @var class-string<TMedia> $model */
+        $model = config('media.model');
+        $fileName = basename($resolvedUrl['path']);
+        $extension = pathinfo($fileName, PATHINFO_EXTENSION) ?: null;
+        $name = pathinfo($fileName, PATHINFO_FILENAME) ?: $fileName;
+
+        $media = new $model;
+        $media->fill($attributes);
+        $media->model()->associate($this);
+        $media->collection_name = $collectionName;
+        $media->collection_group = $collectionGroup;
+        $media->disk = $resolvedUrl['disk'];
+        $media->path = $resolvedUrl['path'];
+        $media->file_name ??= $fileName;
+        $media->extension ??= $extension;
+        $media->name ??= $name;
+        $media->size ??= 0;
+        $media->metadata = [
+            ...($metadata ?? []),
+            'source_url' => $url,
+        ];
+
+        if (! $media->aspect_ratio && $media->width && $media->height) {
+            $media->aspect_ratio = round($media->width / $media->height, 2);
+        }
+
+        $media->saveQuietly();
+
+        if ($this->relationLoaded('media')) {
+            $this->media->push($media);
+        }
 
         return $media;
     }
@@ -262,7 +327,7 @@ trait HasMedia
     }
 
     /**
-     * @return \Illuminate\Support\Collection<int, \Illuminate\Foundation\Bus\PendingDispatch>
+     * @return \Illuminate\Support\Collection<int, PendingDispatch>
      */
     public function dispatchMediaConversion(
         string $conversionName,
@@ -323,7 +388,7 @@ trait HasMedia
      */
     public function addMediaFromDisk(string $path, string $disk): PendingMediaAdder
     {
-        $storage = \Illuminate\Support\Facades\Storage::disk($disk);
+        $storage = Storage::disk($disk);
         $localPath = $storage->path($path);
 
         return new PendingMediaAdder($this, new File($localPath));
