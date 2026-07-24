@@ -10,7 +10,9 @@ use Elegantly\Media\Concerns\InteractWithFiles;
 use Elegantly\Media\Contracts\InteractWithMedia;
 use Elegantly\Media\Database\Factories\MediaFactory;
 use Elegantly\Media\Enums\MediaConversionState;
+use Elegantly\Media\Enums\MediaState;
 use Elegantly\Media\Enums\MediaType;
+use Elegantly\Media\Events\MediaAddedEvent;
 use Elegantly\Media\Events\MediaConversionAddedEvent;
 use Elegantly\Media\Events\MediaFileStoredEvent;
 use Elegantly\Media\FileDownloaders\HttpFileDownloader;
@@ -31,6 +33,7 @@ use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Http\File as HttpFile;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -41,6 +44,7 @@ use Illuminate\Support\Str;
  * @property ?string $collection_group
  * @property ?string $average_color
  * @property ?int $order_column
+ * @property ?MediaState $state
  * @property ?array<array-key, mixed> $metadata
  * @property ?InteractWithMedia<Media> $model
  * @property ?string $model_type
@@ -75,10 +79,24 @@ class Media extends Model
     {
         return [
             'type' => MediaType::class,
+            'state' => MediaState::class,
             'metadata' => 'array',
             'duration' => 'float',
             'aspect_ratio' => 'float',
         ];
+    }
+
+    /**
+     * NULL ≡ ready: существующие строки созданы до появления state и не бэкфиллятся.
+     */
+    public function isReady(): bool
+    {
+        return $this->state === null || $this->state === MediaState::Ready;
+    }
+
+    public function isPending(): bool
+    {
+        return $this->state === MediaState::Pending;
     }
 
     public static function booted()
@@ -89,7 +107,124 @@ class Media extends Model
             $media->conversions->each(fn ($conversion) => $conversion->delete());
 
             $media->deleteFile();
+            $media->deletePendingTempFile();
         });
+    }
+
+    /**
+     * Удаляет temp-файл незавершённой (pending/failed) загрузки, если он есть.
+     * Вызывается при удалении Media любым путём (deleteImage, pendingMediaDeletion).
+     */
+    public function deletePendingTempFile(): void
+    {
+        $temp = $this->metadata['pending_temp'] ?? null;
+
+        if (is_array($temp) && isset($temp['disk'], $temp['path'])) {
+            Storage::disk($temp['disk'])->delete($temp['path']);
+        }
+    }
+
+    /**
+     * Финализация pending-Media: идемпотентно копирует temp-файл на финальный диск,
+     * заполняет файловые поля, переводит state в ready и ТОЛЬКО ПОСЛЕ этого кидает
+     * MediaAddedEvent (на него подписан прогрев размеров CDN).
+     *
+     * Гонки (defer / dehydrate / sweep / delete) разрешаются Cache::lock по uuid.
+     * Возвращает true, когда Media готова (включая no-op на уже ready), false — когда
+     * финализация не удалась (state=failed, temp-файл сохранён для ретрая).
+     */
+    public function finalizePending(): bool
+    {
+        if ($this->isReady()) {
+            return true;
+        }
+
+        $lock = Cache::lock("media-finalize-{$this->uuid}", 60);
+
+        if (! $lock->get()) {
+            // Кто-то уже финализирует (или удаляет) — не соревнуемся.
+            return false;
+        }
+
+        try {
+            $this->refresh();
+
+            if ($this->isReady()) {
+                return true;
+            }
+
+            $temp = $this->metadata['pending_temp'] ?? null;
+
+            if (! is_array($temp) || ! isset($temp['disk'], $temp['path'])
+                || ! Storage::disk($temp['disk'])->exists($temp['path'])
+            ) {
+                $this->state = MediaState::Failed;
+                $this->save();
+
+                logger()->error('Media finalizePending: temp file missing', [
+                    'media_id' => $this->id,
+                    'uuid' => $this->uuid,
+                    'pending_temp' => $temp,
+                ]);
+
+                return false;
+            }
+
+            $absolutePath = Storage::disk($temp['disk'])->path($temp['path']);
+            $targetDisk = $temp['target_disk']
+                ?? config()->string('media.disk', config()->string('filesystems.default', 'local'));
+
+            $this->storeFileFromHttpFile(
+                file: new HttpFile($absolutePath),
+                name: $this->name,
+                disk: $targetDisk,
+            );
+
+            $this->state = MediaState::Ready;
+            $metadata = $this->metadata ?? [];
+            unset($metadata['pending_temp']);
+            $this->metadata = $metadata;
+            $this->save();
+
+            // Temp-файл НЕ удаляем: блок в открытом редакторе ссылается на temp-URL
+            // до пересохранения формы — удаление сломало бы превью. Осиротевшие
+            // temp-файлы (>24ч, без pending_temp-ссылок) убирает cleanup-джоба.
+
+            // Побочные эффекты ПОСЛЕ ready-save в собственном try: файл уже финален,
+            // и откат в failed здесь сделал бы Media невосстановимой (pending_temp
+            // уже снят — ретрай упрётся в missing-temp при живом файле на S3).
+            try {
+                $this->generateConversions(
+                    filter: fn ($definition) => $definition->immediate,
+                    force: true,
+                    withChildren: true,
+                    withForceChildren: true,
+                );
+
+                event(new MediaAddedEvent($this));
+            } catch (\Throwable $e) {
+                logger()->error('Media finalizePending: post-ready side effects failed', [
+                    'media_id' => $this->id,
+                    'uuid' => $this->uuid,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            return true;
+        } catch (\Throwable $e) {
+            $this->state = MediaState::Failed;
+            $this->save();
+
+            logger()->error('Media finalizePending failed', [
+                'media_id' => $this->id,
+                'uuid' => $this->uuid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        } finally {
+            $lock->release();
+        }
     }
 
     /**

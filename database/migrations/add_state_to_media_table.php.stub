@@ -1,0 +1,34 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up()
+    {
+        if (Schema::hasColumn('media', 'state')) {
+            return;
+        }
+
+        Schema::table('media', function (Blueprint $table) {
+            // Nullable без DEFAULT: NULL ≡ ready, бэкфилл существующих строк не нужен.
+            $table->string('state', 20)->nullable()->index();
+        });
+    }
+
+    public function down()
+    {
+        if (! Schema::hasColumn('media', 'state')) {
+            return;
+        }
+
+        Schema::table('media', function (Blueprint $table) {
+            $table->dropIndex(['state']);
+            $table->dropColumn('state');
+        });
+    }
+};

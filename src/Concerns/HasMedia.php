@@ -6,6 +6,7 @@ namespace Elegantly\Media\Concerns;
 
 use Elegantly\Media\Compat\MediaCollectionBuilder;
 use Elegantly\Media\Compat\PendingMediaAdder;
+use Elegantly\Media\Enums\MediaState;
 use Elegantly\Media\Events\MediaAddedEvent;
 use Elegantly\Media\Exceptions\InvalidMimeTypeException;
 use Elegantly\Media\Helpers\File as HelpersFile;
@@ -224,6 +225,62 @@ trait HasMedia
         }
 
         event(new MediaAddedEvent($media));
+
+        return $media;
+    }
+
+    /**
+     * Создаёт Media-запись БЕЗ физического файла (state=pending) для асинхронной
+     * загрузки: файл уже лежит на temp-диске, копирование на финальный диск
+     * выполняет Media::finalizePending() (defer/sweep). MediaAddedEvent здесь
+     * НЕ кидается — он стреляет только после успешной финализации.
+     *
+     * @param  array<array-key, mixed>|null  $metadata
+     * @return TMedia
+     */
+    public function addPendingMedia(
+        string $tempDisk,
+        string $tempPath,
+        ?string $collectionName = null,
+        ?string $collectionGroup = null,
+        ?string $name = null,
+        ?string $disk = null,
+        ?array $metadata = null,
+        ?int $width = null,
+        ?int $height = null,
+        ?string $mimeType = null,
+        ?int $size = null,
+    ): Media {
+        $collectionName ??= config('media.default_collection_name');
+
+        /** @var class-string<TMedia> */
+        $model = config('media.model');
+
+        $collection = $collectionName ? $this->getMediaCollection($collectionName) : null;
+
+        $media = new $model;
+        $media->model()->associate($this);
+        $media->collection_name = $collectionName;
+        $media->collection_group = $collectionGroup;
+        $media->name = $name ?? pathinfo($tempPath, PATHINFO_FILENAME);
+        $media->state = MediaState::Pending;
+        $media->width = $width;
+        $media->height = $height;
+        $media->aspect_ratio = ($width && $height) ? $width / $height : null;
+        $media->mime_type = $mimeType;
+        $media->size = $size ?? 0;
+        $media->metadata = array_merge($metadata ?? [], [
+            'pending_temp' => [
+                'disk' => $tempDisk,
+                'path' => $tempPath,
+                'target_disk' => $disk ?? $collection?->disk,
+            ],
+        ]);
+        $media->save();
+
+        if ($this->relationLoaded('media')) {
+            $this->media->push($media);
+        }
 
         return $media;
     }
