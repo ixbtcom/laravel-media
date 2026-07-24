@@ -16,6 +16,7 @@
 - **`IdPathGenerator`** — генерация путей по auto-increment ID (совместимо с Spatie `DefaultPathGenerator`): `{prefix}/{id}/filename`
 - **`ThumborUrlFormatter`** — форматирование URL через Thumbor CDN (`Ixbtcom\Common\Services\ImageService`)
 - **`MediaThumbnailConverter`** — FFmpeg-конвертер для генерации thumbnail из видео (с настраиваемым timecode и frames)
+- **Pending-состояние Media (async-загрузка, 2026-07-24):** enum `MediaState` (`pending|ready|failed`), nullable-колонка `state` (`NULL`≡`ready`, миграция `add_state_to_media_table`); `HasMedia::addPendingMedia()` создаёт Media БЕЗ файла (temp-ссылка в `metadata.pending_temp`, `MediaAddedEvent` НЕ кидается); `Media::finalizePending()` идемпотентно копирует temp→финальный диск под `Cache::lock("media-finalize-{uuid}")`, событие только после копии, post-ready side effects не откатывают state; `deletePendingTempFile()` при удалении. Не путать с Compat `PendingMediaAdder` (fluent-builder). Потребитель: async-загрузка EditorJS (`ixbtadmin/docs/architecture/editorjs-async-upload.md`)
 - Убрана зависимость `spatie/pdf-to-image`
 
 ## Naming swap (критично!)
