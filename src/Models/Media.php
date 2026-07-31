@@ -161,6 +161,13 @@ class Media extends Model
                 $this->state = MediaState::Failed;
                 $this->save();
 
+                // Повторная пометка уже-failed строки — no-op save (нет dirty-атрибутов),
+                // updated_at не бампается, и часовой backoff sweep'а не работает:
+                // строка ретраилась бы каждый прогон. touch() возвращает backoff.
+                if (! $this->wasChanged()) {
+                    $this->touch();
+                }
+
                 logger()->error('Media finalizePending: temp file missing', [
                     'media_id' => $this->id,
                     'uuid' => $this->uuid,
@@ -212,6 +219,10 @@ class Media extends Model
 
             return true;
         } catch (\Throwable $e) {
+            // Откат не имеет права персистить in-memory мутации metadata: если throw
+            // случился после unset(pending_temp), failed-строка без temp-ссылки стала бы
+            // невосстановимой (sweep такие строки больше не ретраит).
+            $this->metadata = $this->getOriginal('metadata');
             $this->state = MediaState::Failed;
             $this->save();
 
