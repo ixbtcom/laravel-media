@@ -67,10 +67,25 @@ it('creates pending media without a file and without MediaAddedEvent', function 
     expect($media->width)->toBe(16);
     expect($media->mime_type)->toBe('image/jpeg');
     expect($media->metadata['source'])->toBe('editorjs');
-    expect($media->metadata['pending_temp'])->toBe(['disk' => 'temp', 'path' => 'editorjs-tmp/foo.jpg', 'target_disk' => 'media']);
+    expect($media->metadata['pending_temp'])->toBe([
+        'disk' => 'temp',
+        'path' => 'editorjs-tmp/foo.jpg',
+        'target_disk' => 'media',
+        'node' => config('media.local_node'),
+    ]);
     expect($media->model_id)->toBe($model->id);
 
     Event::assertNotDispatched(MediaAddedEvent::class);
+});
+
+it('rejects local pending media when the node identity is missing', function () {
+    config()->set('media.local_node', null);
+    Storage::fake('temp');
+
+    $model = new TestCollections;
+    $model->save();
+
+    expect(fn () => makePendingMedia($model))->toThrow(LogicException::class);
 });
 
 it('finalizePending copies the temp file to the final disk and fires MediaAddedEvent once', function () {
@@ -127,6 +142,42 @@ it('finalizePending marks failed on missing temp file and recovers on retry', fu
     Event::assertDispatchedTimes(MediaAddedEvent::class, 1);
 });
 
+it('does not finalize a local temp file owned by another node', function () {
+    config()->set('media.local_node', 'admin-ixbt-site');
+    Storage::fake('temp');
+    Storage::fake('media');
+    Event::fake([MediaAddedEvent::class]);
+
+    $model = new TestCollections;
+    $model->save();
+
+    $media = makePendingMedia($model);
+
+    config()->set('media.local_node', 'admin-ixbt-su');
+
+    expect($media->finalizePending())->toBeFalse();
+    expect($media->refresh()->state)->toBe(MediaState::Pending);
+    expect(Storage::disk('temp')->exists('editorjs-tmp/foo.jpg'))->toBeTrue();
+    Event::assertNotDispatched(MediaAddedEvent::class);
+});
+
+it('does not mark an unowned legacy temp as failed when it is missing locally', function () {
+    config()->set('media.local_node', 'admin-ixbt-site');
+    Storage::fake('temp');
+    Storage::fake('media');
+
+    $model = new TestCollections;
+    $model->save();
+
+    $media = makePendingMedia($model, withFile: false);
+    $metadata = $media->metadata;
+    unset($metadata['pending_temp']['node']);
+    $media->update(['metadata' => $metadata]);
+
+    expect($media->finalizePending())->toBeFalse();
+    expect($media->refresh()->state)->toBe(MediaState::Pending);
+});
+
 it('stays ready when post-ready side effects throw (recoverability guard)', function () {
     Storage::fake('temp');
     Storage::fake('media');
@@ -137,7 +188,7 @@ it('stays ready when post-ready side effects throw (recoverability guard)', func
     $media = makePendingMedia($model);
 
     // Реальный listener, кидающий исключение ПОСЛЕ ready-save (Event::fake тут не нужен).
-    Illuminate\Support\Facades\Event::listen(MediaAddedEvent::class, function () {
+    Event::listen(MediaAddedEvent::class, function () {
         throw new RuntimeException('listener exploded');
     });
 
@@ -163,5 +214,38 @@ it('deleting pending media removes its temp file', function () {
     $media->delete();
 
     expect(Storage::disk('temp')->exists('editorjs-tmp/foo.jpg'))->toBeFalse();
+    expect(Media::query()->find($media->id))->toBeNull();
+});
+
+it('deleting pending media from another node preserves its local temp file', function () {
+    config()->set('media.local_node', 'admin-ixbt-site');
+    Storage::fake('temp');
+
+    $model = new TestCollections;
+    $model->save();
+
+    $media = makePendingMedia($model);
+
+    config()->set('media.local_node', 'admin-ixbt-su');
+    $media->delete();
+
+    expect(Storage::disk('temp')->exists('editorjs-tmp/foo.jpg'))->toBeTrue();
+    expect(Media::query()->find($media->id))->toBeNull();
+});
+
+it('deleting legacy pending media ignores an unavailable temp disk', function () {
+    Storage::fake('temp');
+
+    $model = new TestCollections;
+    $model->save();
+
+    $media = makePendingMedia($model);
+    $metadata = $media->metadata;
+    unset($metadata['pending_temp']['node']);
+    $metadata['pending_temp']['disk'] = 'missing-temp-disk';
+    $media->update(['metadata' => $metadata]);
+
+    $media->delete();
+
     expect(Media::query()->find($media->id))->toBeNull();
 });

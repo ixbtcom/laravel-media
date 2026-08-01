@@ -28,6 +28,12 @@ return [
     'temporary_storage_path' => 'app/tmp/media',
 
     /**
+     * Stable identity of the server that owns local temporary files.
+     * Override only when the operating-system hostname is not stable.
+     */
+    'local_node' => env('MEDIA_LOCAL_NODE', gethostname() ?: null),
+
+    /**
      * The default disk used for storing files.
      */
     'disk' => env('MEDIA_DISK', env('FILESYSTEM_DISK', 'local')),

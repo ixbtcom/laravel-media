@@ -119,8 +119,19 @@ class Media extends Model
     {
         $temp = $this->metadata['pending_temp'] ?? null;
 
-        if (is_array($temp) && isset($temp['disk'], $temp['path'])) {
+        if (! is_array($temp) || ! isset($temp['disk'], $temp['path']) || ! $this->pendingTempBelongsToCurrentNode($temp)) {
+            return;
+        }
+
+        try {
             Storage::disk($temp['disk'])->delete($temp['path']);
+        } catch (\Throwable $e) {
+            logger()->warning('Media deletePendingTempFile failed', [
+                'media_id' => $this->id,
+                'uuid' => $this->uuid,
+                'disk' => $temp['disk'],
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -131,7 +142,8 @@ class Media extends Model
      *
      * Гонки (defer / dehydrate / sweep / delete) разрешаются Cache::lock по uuid.
      * Возвращает true, когда Media готова (включая no-op на уже ready), false — когда
-     * финализация не удалась (state=failed, temp-файл сохранён для ретрая).
+     * финализация не удалась либо local-temp принадлежит другой ноде. В последнем
+     * случае state не меняется: владелец обработает запись в своей очереди.
      */
     public function finalizePending(): bool
     {
@@ -155,15 +167,41 @@ class Media extends Model
 
             $temp = $this->metadata['pending_temp'] ?? null;
 
-            if (! is_array($temp) || ! isset($temp['disk'], $temp['path'])
-                || ! Storage::disk($temp['disk'])->exists($temp['path'])
-            ) {
+            if (! is_array($temp) || ! isset($temp['disk'], $temp['path'])) {
                 $this->state = MediaState::Failed;
                 $this->save();
 
                 // Повторная пометка уже-failed строки — no-op save (нет dirty-атрибутов),
                 // updated_at не бампается, и часовой backoff sweep'а не работает:
                 // строка ретраилась бы каждый прогон. touch() возвращает backoff.
+                if (! $this->wasChanged()) {
+                    $this->touch();
+                }
+
+                logger()->error('Media finalizePending: temp file missing', [
+                    'media_id' => $this->id,
+                    'uuid' => $this->uuid,
+                    'pending_temp' => $temp,
+                ]);
+
+                return false;
+            }
+
+            if (! $this->pendingTempBelongsToCurrentNode($temp)) {
+                return false;
+            }
+
+            if (! Storage::disk($temp['disk'])->exists($temp['path'])) {
+                // У legacy-строк нет владельца ноды. На общей MySQL отсутствие
+                // файла локально не доказывает его потерю: он может лежать на
+                // соседнем сервере. Новые local-temp всегда получают node.
+                if (! isset($temp['node'])) {
+                    return false;
+                }
+
+                $this->state = MediaState::Failed;
+                $this->save();
+
                 if (! $this->wasChanged()) {
                     $this->touch();
                 }
@@ -222,7 +260,8 @@ class Media extends Model
             // Откат не имеет права персистить in-memory мутации metadata: если throw
             // случился после unset(pending_temp), failed-строка без temp-ссылки стала бы
             // невосстановимой (sweep такие строки больше не ретраит).
-            $this->metadata = $this->getOriginal('metadata');
+            $originalMetadata = $this->getOriginal('metadata');
+            $this->metadata = is_array($originalMetadata) ? $originalMetadata : null;
             $this->state = MediaState::Failed;
             $this->save();
 
@@ -236,6 +275,26 @@ class Media extends Model
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $temp
+     */
+    private function pendingTempBelongsToCurrentNode(array $temp): bool
+    {
+        if (! isset($temp['node'])) {
+            return true;
+        }
+
+        $configuredNode = config('media.local_node');
+
+        if (! is_string($configuredNode) || ! is_string($temp['node'])) {
+            return false;
+        }
+
+        $localNode = trim($configuredNode);
+
+        return $localNode !== '' && hash_equals($temp['node'], $localNode);
     }
 
     /**
@@ -1217,7 +1276,7 @@ class Media extends Model
     public function setCustomProperty(string $name, $value): static
     {
         $metadata = $this->metadata ?? [];
-        data_set($metadata, $name, $value);
+        Arr::set($metadata, $name, $value);
         $this->metadata = $metadata;
 
         return $this;

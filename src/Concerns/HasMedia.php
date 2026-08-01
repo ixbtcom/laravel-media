@@ -23,6 +23,7 @@ use Illuminate\Http\File;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use LogicException;
 
 /**
  * @mixin Model
@@ -269,13 +270,23 @@ trait HasMedia
         $media->aspect_ratio = ($width && $height) ? $width / $height : null;
         $media->mime_type = $mimeType;
         $media->size = $size ?? 0;
-        $media->metadata = array_merge($metadata ?? [], [
-            'pending_temp' => [
-                'disk' => $tempDisk,
-                'path' => $tempPath,
-                'target_disk' => $disk ?? $collection?->disk,
-            ],
-        ]);
+        $pendingTemp = [
+            'disk' => $tempDisk,
+            'path' => $tempPath,
+            'target_disk' => $disk ?? $collection?->disk,
+        ];
+
+        if (config("filesystems.disks.{$tempDisk}.driver", 'local') === 'local') {
+            $localNode = trim((string) config('media.local_node'));
+
+            if ($localNode === '') {
+                throw new LogicException('media.local_node must identify the owner of local temporary files.');
+            }
+
+            $pendingTemp['node'] = $localNode;
+        }
+
+        $media->metadata = array_merge($metadata ?? [], ['pending_temp' => $pendingTemp]);
         $media->save();
 
         if ($this->relationLoaded('media')) {
