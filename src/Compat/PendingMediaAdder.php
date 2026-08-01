@@ -37,7 +37,13 @@ class PendingMediaAdder
     public function __construct(
         private Model $model,
         private mixed $file,
+        private bool $closeFileAfterStore = false,
     ) {}
+
+    public function __destruct()
+    {
+        $this->closeOwnedFile();
+    }
 
     public function usingName(string $name): static
     {
@@ -75,12 +81,23 @@ class PendingMediaAdder
      */
     public function toMediaCollection(string $collectionName = 'default', string $disk = ''): Media
     {
-        return $this->model->addMedia(
-            file: $this->file,
-            collectionName: $collectionName,
-            name: $this->name ?? $this->fileName,
-            disk: $disk ?: null,
-            metadata: $this->metadata,
-        );
+        try {
+            return $this->model->addMedia(
+                file: $this->file,
+                collectionName: $collectionName,
+                name: $this->name ?? $this->fileName,
+                disk: $disk ?: null,
+                metadata: $this->metadata,
+            );
+        } finally {
+            $this->closeOwnedFile();
+        }
+    }
+
+    private function closeOwnedFile(): void
+    {
+        if ($this->closeFileAfterStore && is_resource($this->file)) {
+            fclose($this->file);
+        }
     }
 }

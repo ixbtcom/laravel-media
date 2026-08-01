@@ -7,6 +7,7 @@ use Elegantly\Media\Jobs\DeleteModelMediaJob;
 use Elegantly\Media\MediaCollection;
 use Elegantly\Media\Tests\Models\TestCollections;
 use Elegantly\Media\Tests\Models\TestSoftDelete;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -99,6 +100,36 @@ it('adds a new media to the specified collection group', function () {
 
     expect($media->collection_name)->toBe('multiple');
     expect($media->collection_group)->toBe('group');
+});
+
+it('adds media from a remote disk without requiring a local path', function () {
+    Storage::fake('media');
+
+    $model = new TestCollections;
+    $model->save();
+
+    $sourceFile = UploadedFile::fake()->image('generated.png', width: 16, height: 9);
+    $sourceStream = fopen($sourceFile->getRealPath(), 'rb');
+
+    expect($sourceStream)->toBeResource();
+
+    $remoteDisk = Mockery::mock(Filesystem::class);
+    $remoteDisk->shouldReceive('readStream')
+        ->once()
+        ->with('ai-images/generated.png')
+        ->andReturn($sourceStream);
+
+    app('filesystem')->set('remote', $remoteDisk);
+
+    $media = $model->addMediaFromDisk('ai-images/generated.png', 'remote')
+        ->toMediaCollection('multiple', 'media');
+
+    expect($media->name)->toBe('generated')
+        ->and($media->extension)->toBe('png')
+        ->and($media->width)->toBe(16)
+        ->and($media->height)->toBe(9);
+
+    Storage::disk('media')->assertExists($media->path);
 });
 
 it('creates and reuses media from a permanent url without storing a file', function () {

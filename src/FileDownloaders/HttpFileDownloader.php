@@ -7,6 +7,7 @@ namespace Elegantly\Media\FileDownloaders;
 use Elegantly\Media\Helpers\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 
 class HttpFileDownloader
 {
@@ -50,7 +51,17 @@ class HttpFileDownloader
             'root' => $destination,
         ]);
 
-        $storage->writeStream($path, $resource);
+        if (! $storage->writeStream(basename($path), $resource)) {
+            throw new RuntimeException('Unable to copy the media stream to a temporary file.');
+        }
+
+        if ($extension = File::extension($path)) {
+            $pathWithExtension = "{$path}.{$extension}";
+
+            rename($path, $pathWithExtension);
+
+            return $pathWithExtension;
+        }
 
         return $path;
     }

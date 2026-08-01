@@ -24,6 +24,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use LogicException;
+use RuntimeException;
 
 /**
  * @mixin Model
@@ -457,9 +458,14 @@ trait HasMedia
     public function addMediaFromDisk(string $path, string $disk): PendingMediaAdder
     {
         $storage = Storage::disk($disk);
-        $localPath = $storage->path($path);
+        $stream = $storage->readStream($path);
 
-        return new PendingMediaAdder($this, new File($localPath));
+        if (! is_resource($stream)) {
+            throw new RuntimeException("Unable to read media file [{$path}] from disk [{$disk}].");
+        }
+
+        return (new PendingMediaAdder($this, $stream, closeFileAfterStore: true))
+            ->usingName(pathinfo($path, PATHINFO_FILENAME));
     }
 
     /**
