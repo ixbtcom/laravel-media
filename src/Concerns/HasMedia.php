@@ -163,6 +163,8 @@ trait HasMedia
         ?int $order = null,
         ?array $metadata = null,
         array $attributes = [],
+        ?string $destination = null,
+        ?array $options = null,
     ): Media {
         $collectionName ??= config('media.default_collection_name');
 
@@ -181,6 +183,7 @@ trait HasMedia
 
         $media->storeFile(
             file: $file,
+            destination: $destination,
             name: $name,
             disk: $disk ?? $collection?->disk,
             before: function ($file, $temporaryDirectory) use ($collection) {
@@ -200,7 +203,8 @@ trait HasMedia
                 }
 
                 return $file;
-            }
+            },
+            options: $options,
         );
 
         if ($this->relationLoaded('media')) {

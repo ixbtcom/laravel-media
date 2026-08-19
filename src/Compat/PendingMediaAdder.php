@@ -79,6 +79,32 @@ class PendingMediaAdder
     /**
      * Terminal method — stores the file into the collection.
      */
+    /** @var null|array<array-key, mixed> */
+    private ?array $writeOptions = null;
+
+    private ?string $destination = null;
+
+    /**
+     * Опции записи, уходящие в putFileAs. Нужны там, где объекту в хранилище
+     * надо проставить заголовок (Content-Disposition для скачиваемых вложений).
+     *
+     * @param  null|array<array-key, mixed>  $options
+     */
+    public function withWriteOptions(?array $options): static
+    {
+        $this->writeOptions = $options;
+
+        return $this;
+    }
+
+    /** Каталог внутри бакета вместо пути от path-генератора. */
+    public function toDestination(?string $destination): static
+    {
+        $this->destination = $destination;
+
+        return $this;
+    }
+
     public function toMediaCollection(string $collectionName = 'default', string $disk = ''): Media
     {
         try {
@@ -88,6 +114,8 @@ class PendingMediaAdder
                 name: $this->name ?? $this->fileName,
                 disk: $disk ?: null,
                 metadata: $this->metadata,
+                destination: $this->destination,
+                options: $this->writeOptions,
             );
         } finally {
             $this->closeOwnedFile();

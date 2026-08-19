@@ -81,6 +81,8 @@ interface InteractWithMedia
         ?int $order = null,
         ?array $metadata = null,
         array $attributes = [],
+        ?string $destination = null,
+        ?array $options = null,
     ): Media;
 
     /**

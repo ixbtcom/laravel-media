@@ -219,10 +219,16 @@ class Media extends Model
             $targetDisk = $temp['target_disk']
                 ?? config()->string('media.disk', config()->string('filesystems.default', 'local'));
 
+            // Опции записи (например Content-Disposition для скачиваемых
+            // вложений) кладутся при создании pending: сюда исполнение
+            // приходит уже без исходного запроса.
+            $writeOptions = $this->metadata['write_options'] ?? null;
+
             $this->storeFileFromHttpFile(
                 file: new HttpFile($absolutePath),
                 name: $this->name,
                 disk: $targetDisk,
+                options: is_array($writeOptions) && $writeOptions !== [] ? $writeOptions : null,
             );
 
             $this->state = MediaState::Ready;
@@ -336,22 +342,23 @@ class Media extends Model
         ?string $name = null,
         ?string $disk = null,
         ?Closure $before = null,
+        ?array $options = null,
     ): static {
 
         if ($file instanceof UploadedFile || $file instanceof HttpFile) {
-            return $this->storeFileFromHttpFile($file, $destination, $name, $disk, $before);
+            return $this->storeFileFromHttpFile($file, $destination, $name, $disk, $before, $options);
         }
 
         if (! is_string($file) || filter_var($file, FILTER_VALIDATE_URL)) {
             /** @var static $value */
-            $value = TemporaryDirectory::callback(function ($temporaryDirectory) use ($file, $destination, $name, $disk, $before) {
+            $value = TemporaryDirectory::callback(function ($temporaryDirectory) use ($file, $destination, $name, $disk, $before, $options) {
 
                 $path = HttpFileDownloader::download(
                     file: $file,
                     destination: $temporaryDirectory->path()
                 );
 
-                return $this->storeFileFromHttpFile(new HttpFile($path), $destination, $name, $disk, $before);
+                return $this->storeFileFromHttpFile(new HttpFile($path), $destination, $name, $disk, $before, $options);
             });
 
             return $value;
@@ -369,6 +376,7 @@ class Media extends Model
         ?string $name = null,
         ?string $disk = null,
         ?Closure $before = null,
+        ?array $options = null,
     ): static {
 
         /** @var class-string<AbstractPathGenerator> */
@@ -385,7 +393,7 @@ class Media extends Model
         $name ??= File::name($file) ?? Str::random(6);
         $disk ??= config()->string('media.disk', config()->string('filesystems.default', 'local'));
 
-        TemporaryDirectory::callback(function ($temporaryDirectory) use ($file, $destination, $name, $disk, $before) {
+        TemporaryDirectory::callback(function ($temporaryDirectory) use ($file, $destination, $name, $disk, $before, $options) {
             if ($before) {
                 $file = $before($file, $temporaryDirectory);
             }
@@ -395,6 +403,7 @@ class Media extends Model
                 destination: $destination,
                 file: $file,
                 name: $name,
+                options: $options,
             );
 
             if (! $path) {

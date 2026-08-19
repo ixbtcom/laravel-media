@@ -168,6 +168,7 @@ trait InteractWithFiles
         string $destination,
         UploadedFile|HttpFile $file,
         string $name,
+        ?array $options = null,
     ): string|null|false {
         $this->disk = $disk;
 
@@ -184,6 +185,7 @@ trait InteractWithFiles
             $destination,
             $file,
             $fileName,
+            $options ?? [],
         ) ?: null;
 
         $this->path = $path;
