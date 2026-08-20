@@ -12,6 +12,7 @@ use Elegantly\Media\Helpers\File;
 use Elegantly\Media\TemporaryDirectory;
 use Elegantly\Media\UrlFormatters\AbstractUrlFormatter;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\File as HttpFile;
 use Illuminate\Http\UploadedFile;
@@ -163,17 +164,131 @@ trait InteractWithFiles
     /**
      * @return ?string The new file path on success, null on failure
      */
+    /**
+     * Кладёт на диск объект, уже лежащий в другом хранилище, серверной копией —
+     * не протаскивая его через приложение. Нужно там, где файл принят
+     * presigned-загрузкой на temp-бакет: скачать гигабайты во временный файл и
+     * залить обратно значило бы удвоить трафик и упереться в таймаут PHP.
+     *
+     * false — копия неприменима (разные провайдеры, чужой драйвер): вызывающий
+     * код тянет файл во временный каталог и идёт обычным путём.
+     *
+     * @param  null|array<array-key, mixed>  $options
+     */
+    public function putFileFromDisk(
+        string $sourceDisk,
+        string $sourcePath,
+        string $disk,
+        ?string $destination,
+        string $name,
+        ?array $options = null,
+    ): string|null|false {
+        $this->disk = $disk;
+
+        $source = Storage::disk($sourceDisk);
+        $destination = Str::rtrim($destination ?? '', '/');
+        $extension = strtolower((string) pathinfo($sourcePath, PATHINFO_EXTENSION));
+        $name = File::sanitizeFilename($name);
+        $fileName = $extension !== '' ? "{$name}.{$extension}" : $name;
+        $path = $destination !== '' ? "{$destination}/{$fileName}" : $fileName;
+
+        if (! $this->copyObjectWithinProvider($sourceDisk, $sourcePath, $disk, $path, $options)) {
+            return false;
+        }
+
+        $this->path = $path;
+        $this->name = $name;
+        $this->extension = $extension !== '' ? $extension : null;
+        $this->file_name = $fileName;
+        $this->mime_type ??= $source->mimeType($sourcePath) ?: null;
+        $this->size = $source->size($sourcePath);
+        $this->type = MediaType::tryFromMimeType($this->mime_type ?? '');
+
+        return $path;
+    }
+
+    /**
+     * Серверная копия внутри одного S3-провайдера. false — провайдер не тот,
+     * бакеты за разными эндпоинтами или копия не удалась: вызывающий код
+     * откатывается на поток.
+     *
+     * SHORTCUT: одиночный CopyObject, потолок S3 — 5 ГБ на объект. Ролики
+     * ограничены четырьмя, так что влезают. Триггер на multipart-копию —
+     * первое повышение лимита видео выше 5 ГБ.
+     *
+     * @param  null|array<array-key, mixed>  $options
+     */
+    private function copyObjectWithinProvider(
+        string $sourceDisk,
+        string $sourcePath,
+        string $targetDisk,
+        string $targetPath,
+        ?array $options,
+    ): bool {
+        $source = Storage::disk($sourceDisk);
+        $target = Storage::disk($targetDisk);
+
+        if (! $source instanceof AwsS3V3Adapter || ! $target instanceof AwsS3V3Adapter) {
+            return false;
+        }
+
+        $sourceEndpoint = config("filesystems.disks.{$sourceDisk}.endpoint");
+        $targetEndpoint = config("filesystems.disks.{$targetDisk}.endpoint");
+
+        if (! is_string($sourceEndpoint) || $sourceEndpoint !== $targetEndpoint) {
+            return false;
+        }
+
+        $sourceBucket = config("filesystems.disks.{$sourceDisk}.bucket");
+        $targetBucket = config("filesystems.disks.{$targetDisk}.bucket");
+
+        if (! is_string($sourceBucket) || ! is_string($targetBucket)) {
+            return false;
+        }
+
+        $arguments = [
+            'Bucket' => $targetBucket,
+            'Key' => $targetPath,
+            'CopySource' => "{$sourceBucket}/{$sourcePath}",
+        ];
+
+        // Метаданные копии задаются только когда их просили: без REPLACE
+        // провайдер переносит Content-Type исходного объекта как есть.
+        $overrides = array_intersect_key(
+            $options ?? [],
+            ['ContentType' => true, 'ContentDisposition' => true, 'CacheControl' => true],
+        );
+
+        if ($overrides !== []) {
+            $arguments = [...$arguments, ...$overrides, 'MetadataDirective' => 'REPLACE'];
+        }
+
+        try {
+            $target->getClient()->copyObject($arguments);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return false;
+        }
+
+        return true;
+    }
+
     public function putFile(
         string $disk,
         string $destination,
         UploadedFile|HttpFile $file,
         string $name,
         ?array $options = null,
+        ?string $extension = null,
     ): string|null|false {
         $this->disk = $disk;
 
         $destination = Str::rtrim($destination, '/');
-        $extension = File::extension($file);
+        // Расширение переданное явно — от ключа в хранилище, откуда файл забрали:
+        // на нём уже завязаны presigned-загрузка и temp-ссылка, а определение по
+        // содержимому дало бы другое имя того же объекта.
+        $extension ??= File::extension($file);
 
         $name = File::sanitizeFilename($name);
 

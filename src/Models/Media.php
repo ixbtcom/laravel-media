@@ -19,6 +19,7 @@ use Elegantly\Media\FileDownloaders\HttpFileDownloader;
 use Elegantly\Media\Helpers\File;
 use Elegantly\Media\MediaConversionDefinition;
 use Elegantly\Media\PathGenerators\AbstractPathGenerator;
+use Elegantly\Media\StoredFile;
 use Elegantly\Media\TemporaryDirectory;
 use Elegantly\Media\Traits\HasUuid;
 use Elegantly\Media\UrlFormatters\AbstractUrlFormatter;
@@ -215,7 +216,6 @@ class Media extends Model
                 return false;
             }
 
-            $absolutePath = Storage::disk($temp['disk'])->path($temp['path']);
             $targetDisk = $temp['target_disk']
                 ?? config()->string('media.disk', config()->string('filesystems.default', 'local'));
 
@@ -223,12 +223,17 @@ class Media extends Model
             // вложений) кладутся при создании pending: сюда исполнение
             // приходит уже без исходного запроса.
             $writeOptions = $this->metadata['write_options'] ?? null;
+            $writeOptions = is_array($writeOptions) && $writeOptions !== [] ? $writeOptions : null;
 
-            $this->storeFileFromHttpFile(
-                file: new HttpFile($absolutePath),
+            // Один вызов на оба случая: локальный temp даёт путь в файловой
+            // системе, удалённый копируется из диска в диск. ⛔ Тащить объект с
+            // S3 во временный файл и заливать обратно нельзя — двойной трафик и
+            // таймаут PHP на крупном ролике.
+            $this->storeFile(
+                file: new StoredFile($temp['disk'], $temp['path']),
                 name: $this->name,
                 disk: $targetDisk,
-                options: is_array($writeOptions) && $writeOptions !== [] ? $writeOptions : null,
+                options: $writeOptions,
             );
 
             $this->state = MediaState::Ready;
@@ -333,7 +338,7 @@ class Media extends Model
     // Storing File ----------------------------------------------------------
 
     /**
-     * @param  string|UploadedFile|HttpFile|resource  $file
+     * @param  string|UploadedFile|HttpFile|StoredFile|resource  $file
      * @param  null|(Closure(UploadedFile|HttpFile $file):(UploadedFile|HttpFile))  $before
      */
     public function storeFile(
@@ -344,6 +349,17 @@ class Media extends Model
         ?Closure $before = null,
         ?array $options = null,
     ): static {
+
+        // Источник уже в хранилище. Локальный отдаёт путь в файловой системе и
+        // идёт общим путём (там же снимаются размеры и длительность); удалённый
+        // копируется из диска в диск, не проходя через приложение.
+        if ($file instanceof StoredFile) {
+            $localFile = $file->toHttpFile();
+
+            return $localFile
+                ? $this->storeFileFromHttpFile($localFile, $destination, $name, $disk, $before, $options)
+                : $this->storeFileFromStorage($file, $destination, $name, $disk, $options);
+        }
 
         if ($file instanceof UploadedFile || $file instanceof HttpFile) {
             return $this->storeFileFromHttpFile($file, $destination, $name, $disk, $before, $options);
@@ -377,6 +393,7 @@ class Media extends Model
         ?string $disk = null,
         ?Closure $before = null,
         ?array $options = null,
+        ?string $extension = null,
     ): static {
 
         /** @var class-string<AbstractPathGenerator> */
@@ -393,7 +410,7 @@ class Media extends Model
         $name ??= File::name($file) ?? Str::random(6);
         $disk ??= config()->string('media.disk', config()->string('filesystems.default', 'local'));
 
-        TemporaryDirectory::callback(function ($temporaryDirectory) use ($file, $destination, $name, $disk, $before, $options) {
+        TemporaryDirectory::callback(function ($temporaryDirectory) use ($file, $destination, $name, $disk, $before, $options, $extension) {
             if ($before) {
                 $file = $before($file, $temporaryDirectory);
             }
@@ -404,6 +421,7 @@ class Media extends Model
                 file: $file,
                 name: $name,
                 options: $options,
+                extension: $extension,
             );
 
             if (! $path) {
@@ -413,6 +431,83 @@ class Media extends Model
             $this->save();
 
         });
+
+        event(new MediaFileStoredEvent($this));
+
+        return $this;
+    }
+
+    /**
+     * Перенос объекта из чужого хранилища без локального файла: у S3 это
+     * серверная копия, у остальных — поток из диска в диск. Замеры (ширина,
+     * длительность) здесь недоступны — их даёт вызывающий код там, где они нужны.
+     *
+     * @param  null|array<array-key, mixed>  $options
+     */
+    protected function storeFileFromStorage(
+        StoredFile $file,
+        ?string $destination = null,
+        ?string $name = null,
+        ?string $disk = null,
+        ?array $options = null,
+    ): static {
+        /** @var class-string<AbstractPathGenerator> */
+        $pathGenerator = config('media.default_path_generator');
+
+        // Путь генерируется от id, поэтому строка обязана существовать заранее.
+        if (! $this->exists && $destination === null) {
+            $this->size ??= 0;
+            $this->save();
+        }
+
+        $destination ??= (new $pathGenerator)->media($this)->value();
+        $disk ??= config()->string('media.disk', config()->string('filesystems.default', 'local'));
+
+        $path = $this->putFileFromDisk(
+            sourceDisk: $file->disk,
+            sourcePath: $file->path,
+            disk: $disk,
+            destination: $destination,
+            name: $name ?? $this->name ?? Str::random(6),
+            options: $options,
+        );
+
+        // Серверной копии не вышло (разные провайдеры, чужой драйвер): тянем
+        // объект во временный файл. Дороже, зато оттуда снимаются размеры и
+        // длительность — картинке они нужны.
+        if (! $path) {
+            /** @var static $value */
+            $value = TemporaryDirectory::callback(function ($temporaryDirectory) use ($file, $destination, $name, $disk, $options) {
+                $stream = Storage::disk($file->disk)->readStream($file->path);
+
+                if (! is_resource($stream)) {
+                    throw new Exception("Unable to read media file '{$file->path}' from disk '{$file->disk}'.");
+                }
+
+                $local = $temporaryDirectory->path(basename($file->path));
+
+                try {
+                    $target = fopen($local, 'wb');
+                    stream_copy_to_stream($stream, $target);
+                    fclose($target);
+                } finally {
+                    fclose($stream);
+                }
+
+                return $this->storeFileFromHttpFile(
+                    file: new HttpFile($local),
+                    destination: $destination,
+                    name: $name,
+                    disk: $disk,
+                    options: $options,
+                    extension: $file->extension() ?: null,
+                );
+            });
+
+            return $value;
+        }
+
+        $this->save();
 
         event(new MediaFileStoredEvent($this));
 

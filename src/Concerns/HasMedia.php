@@ -13,6 +13,7 @@ use Elegantly\Media\Helpers\File as HelpersFile;
 use Elegantly\Media\Jobs\DeleteModelMediaJob;
 use Elegantly\Media\MediaCollection;
 use Elegantly\Media\Models\Media;
+use Elegantly\Media\StoredFile;
 use Elegantly\Media\Support\MediaUrlResolver;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Collection;
@@ -461,14 +462,10 @@ trait HasMedia
      */
     public function addMediaFromDisk(string $path, string $disk): PendingMediaAdder
     {
-        $storage = Storage::disk($disk);
-        $stream = $storage->readStream($path);
-
-        if (! is_resource($stream)) {
-            throw new RuntimeException("Unable to read media file [{$path}] from disk [{$disk}].");
-        }
-
-        return (new PendingMediaAdder($this, $stream, closeFileAfterStore: true))
+        // Источник отдаётся ссылкой на хранилище, а не потоком: как его
+        // переносить — решает storeFile по драйверам дисков, и объект внутри
+        // одного S3-провайдера не проходит через приложение.
+        return (new PendingMediaAdder($this, new StoredFile($disk, $path)))
             ->usingName(pathinfo($path, PATHINFO_FILENAME));
     }
 

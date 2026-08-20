@@ -249,3 +249,42 @@ it('deleting legacy pending media ignores an unavailable temp disk', function ()
 
     expect(Media::query()->find($media->id))->toBeNull();
 });
+
+it('finalizePending copies from a remote temp disk without a local path', function () {
+    // Вложения и ролики EditorJS лежат на S3-temp: локального пути у такого
+    // объекта нет, и финализация обязана копировать из хранилища в хранилище.
+    Storage::fake('temp');
+    Storage::fake('media');
+    config()->set('filesystems.disks.temp.driver', 's3');
+
+    $model = new TestCollections;
+    $model->save();
+
+    // Содержимое — настоящая шапка mp4: тип и расширение объекта определяются
+    // по нему, и подделка тут проверяла бы не перенос, а сам фейк.
+    $payload = "\x00\x00\x00\x18ftypisomiso2avc1mp41\x00\x00\x00\x08mdat";
+    Storage::disk('temp')->put('editorjs-tmp/clip.mp4', $payload);
+
+    $media = $model->addPendingMedia(
+        tempDisk: 'temp',
+        tempPath: 'editorjs-tmp/clip.mp4',
+        collectionName: 'multiple',
+        name: 'media-abc',
+        disk: 'media',
+        mimeType: 'video/mp4',
+        size: 32,
+    );
+
+    expect($media->metadata['pending_temp'])->not->toHaveKey('node');
+    expect($media->finalizePending())->toBeTrue();
+
+    $media->refresh();
+
+    expect($media->state)->toBe(MediaState::Ready);
+    expect($media->disk)->toBe('media');
+    expect($media->file_name)->toBe('media-abc.mp4');
+    expect($media->extension)->toBe('mp4');
+    expect($media->mime_type)->toBe('video/mp4');
+    expect($media->size)->toBe(32);
+    expect(Storage::disk('media')->get($media->path))->toBe($payload);
+});

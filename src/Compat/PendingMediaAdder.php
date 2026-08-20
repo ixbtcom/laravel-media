@@ -9,6 +9,7 @@ use Elegantly\Media\Models\Media;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
+use Elegantly\Media\StoredFile;
 
 /**
  * Spatie-compatible fluent media adder.
@@ -32,7 +33,7 @@ class PendingMediaAdder
 
     /**
      * @param  Model&HasMedia  $model
-     * @param  string|UploadedFile|File|resource  $file
+     * @param  string|UploadedFile|File|StoredFile|resource  $file
      */
     public function __construct(
         private Model $model,
