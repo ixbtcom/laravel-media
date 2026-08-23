@@ -1,5 +1,8 @@
 # Extremely powerful media library for Laravel 🖼️
 
+> **Форк `ixbtcom/laravel-media`** (база — upstream `elegantly/laravel-media` v4.7.1, namespace `Elegantly\Media` сохранён); в ixbtwire/ixbtadmin подключается локально через composer `repositories`, не с Packagist.
+> Ниже — README upstream. Отличия форка (Spatie-compat слой, `IdPathGenerator`, `ThumborUrlFormatter`, pending-Media, убранный `spatie/pdf-to-image` — PDF-конверсии не поддерживаются) и gotchas — в [`CLAUDE.md`](CLAUDE.md).
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/elegantly/laravel-media.svg?style=flat-square)](https://packagist.org/packages/elegantly/laravel-media)
 [![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/ElegantEngineeringTech/laravel-media/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/ElegantEngineeringTech/laravel-media/actions?query=workflow%3Arun-tests+branch%3Amain)
 [![GitHub Coverage Action Status](https://img.shields.io/github/actions/workflow/status/ElegantEngineeringTech/laravel-media/coverage.yml?branch=main&label=coverage&style=flat-square)](https://github.com/ElegantEngineeringTech/laravel-media/actions?query=workflow%3Acoverage+branch%3Amain)
