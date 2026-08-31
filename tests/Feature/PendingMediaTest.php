@@ -117,6 +117,36 @@ it('finalizePending copies the temp file to the final disk and fires MediaAddedE
     Event::assertDispatchedTimes(MediaAddedEvent::class, 1);
 });
 
+it('finalizePending preserves rights evidence byte for byte', function () {
+    Storage::fake('temp');
+    Storage::fake('media');
+    Event::fake([MediaAddedEvent::class]);
+
+    $model = new TestCollections;
+    $model->save();
+
+    $media = makePendingMedia($model);
+    $metadata = $media->metadata;
+    $metadata['rights_evidence'] = [
+        'schema_version' => 1,
+        'file' => ['sha256' => str_repeat('a', 64)],
+        'embedded' => [
+            'creator' => [['value' => 'Марина Лысцева', 'tags' => ['IPTC:By-line']]],
+            'supplier' => [['value' => 'ТАСС', 'tags' => ['IPTC:Source']]],
+        ],
+        'extraction' => ['status' => 'success'],
+    ];
+    $media->update(['metadata' => $metadata]);
+    $storedEvidence = $media->metadata['rights_evidence'];
+
+    expect($media->finalizePending())->toBeTrue();
+
+    $media->refresh();
+
+    expect($media->metadata)->not->toHaveKey('pending_temp')
+        ->and($media->metadata['rights_evidence'])->toBe($storedEvidence);
+});
+
 it('finalizePending marks failed on missing temp file and recovers on retry', function () {
     Storage::fake('temp');
     Storage::fake('media');

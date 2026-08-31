@@ -20,6 +20,7 @@ use Elegantly\Media\Helpers\File;
 use Elegantly\Media\MediaConversionDefinition;
 use Elegantly\Media\PathGenerators\AbstractPathGenerator;
 use Elegantly\Media\StoredFile;
+use Elegantly\Media\Support\MediaRightsEvidence;
 use Elegantly\Media\TemporaryDirectory;
 use Elegantly\Media\Traits\HasUuid;
 use Elegantly\Media\UrlFormatters\AbstractUrlFormatter;
@@ -98,6 +99,11 @@ class Media extends Model
     public function isPending(): bool
     {
         return $this->state === MediaState::Pending;
+    }
+
+    public function rightsEvidence(): MediaRightsEvidence
+    {
+        return MediaRightsEvidence::fromMetadata($this->metadata);
     }
 
     public static function booted()
