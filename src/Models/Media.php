@@ -252,20 +252,27 @@ class Media extends Model
             // до пересохранения формы — удаление сломало бы превью. Осиротевшие
             // temp-файлы (>24ч, без pending_temp-ссылок) убирает cleanup-джоба.
 
-            // Побочные эффекты ПОСЛЕ ready-save в собственном try: файл уже финален,
-            // и откат в failed здесь сделал бы Media невосстановимой (pending_temp
-            // уже снят — ретрай упрётся в missing-temp при живом файле на S3).
-            try {
-                $this->generateConversions(
-                    filter: fn ($definition) => $definition->immediate,
-                    force: true,
-                    withChildren: true,
-                    withForceChildren: true,
-                );
+            if ($this->type !== MediaType::Image) {
+                try {
+                    $this->generateConversions(
+                        filter: fn ($definition) => $definition->immediate,
+                        force: true,
+                        withChildren: true,
+                        withForceChildren: true,
+                    );
+                } catch (\Throwable $e) {
+                    logger()->error('Media finalizePending: conversions failed', [
+                        'media_id' => $this->id,
+                        'uuid' => $this->uuid,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
+            try {
                 event(new MediaAddedEvent($this));
             } catch (\Throwable $e) {
-                logger()->error('Media finalizePending: post-ready side effects failed', [
+                logger()->error('Media finalizePending: MediaAddedEvent failed', [
                     'media_id' => $this->id,
                     'uuid' => $this->uuid,
                     'error' => $e->getMessage(),

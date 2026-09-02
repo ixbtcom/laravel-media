@@ -32,7 +32,7 @@ it('does not generates non immediate conversion when a media is added', function
     expect($media->conversions)->toHaveCount(0);
 });
 
-it('generates immediate conversion when a media is added', function () {
+it('does not generate immediate image conversion when a media is added', function () {
     Event::fake();
     Queue::fake();
     Storage::fake('media');
@@ -47,13 +47,13 @@ it('generates immediate conversion when a media is added', function () {
     );
 
     Queue::assertPushed(MediaImageConverter::class, 0);
-    Event::assertDispatched(MediaConverterExecutedEvent::class, 1);
+    Event::assertDispatched(MediaConverterExecutedEvent::class, 0);
 
     $conversion = $media->getConversion('small', MediaConversionState::Succeeded);
 
-    expect($conversion)->not->toBe(null);
+    expect($conversion)->toBe(null);
 
-    expect($media->conversions)->toHaveCount(1);
+    expect($media->conversions)->toHaveCount(0);
 });
 
 it('does not queue non immediate queued conversion when a media is added', function () {
@@ -80,7 +80,7 @@ it('does not queue non immediate queued conversion when a media is added', funct
     expect($media->conversions)->toHaveCount(0);
 });
 
-it('does queue immediate queued conversion when a media is added', function () {
+it('does not queue immediate image conversion when a media is added', function () {
     Event::fake();
     Queue::fake();
     Storage::fake('media');
@@ -94,7 +94,7 @@ it('does queue immediate queued conversion when a media is added', function () {
         disk: 'media'
     );
 
-    Queue::assertPushed(MediaImageConverter::class, 1);
+    Queue::assertPushed(MediaImageConverter::class, 0);
     Event::assertDispatched(MediaConverterExecutedEvent::class, 0);
 
     $conversion = $media->getConversion('small');
@@ -104,7 +104,7 @@ it('does queue immediate queued conversion when a media is added', function () {
     expect($media->conversions)->toHaveCount(0);
 });
 
-it('generates immediate nested conversion when a media is added', function () {
+it('does not generate immediate nested image conversion when a media is added', function () {
     Event::fake();
     Queue::fake();
     Storage::fake('media');
@@ -119,18 +119,18 @@ it('generates immediate nested conversion when a media is added', function () {
     );
 
     Queue::assertPushed(MediaImageConverter::class, 0);
-    Event::assertDispatched(MediaConverterExecutedEvent::class, 2);
+    Event::assertDispatched(MediaConverterExecutedEvent::class, 0);
 
     $small = $media->getConversion('small', MediaConversionState::Succeeded);
     $smaller = $media->getConversion('small.smaller', MediaConversionState::Succeeded);
 
-    expect($small)->not->toBe(null);
-    expect($smaller)->not->toBe(null);
+    expect($small)->toBe(null);
+    expect($smaller)->toBe(null);
 
-    expect($media->conversions)->toHaveCount(2);
+    expect($media->conversions)->toHaveCount(0);
 });
 
-it('does queue immediate queued nested conversion when a media is added', function () {
+it('does not queue immediate queued nested image conversion when a media is added', function () {
     Event::fake();
     Queue::fake();
     Storage::fake('media');
@@ -144,16 +144,16 @@ it('does queue immediate queued nested conversion when a media is added', functi
         disk: 'media'
     );
 
-    Queue::assertPushed(MediaImageConverter::class, 1);
-    Event::assertDispatched(MediaConverterExecutedEvent::class, 1);
+    Queue::assertPushed(MediaImageConverter::class, 0);
+    Event::assertDispatched(MediaConverterExecutedEvent::class, 0);
 
     $small = $media->getConversion('small', MediaConversionState::Succeeded);
     $smaller = $media->getConversion('small.smaller');
 
-    expect($small)->not->toBe(null);
+    expect($small)->toBe(null);
     expect($smaller)->toBe(null);
 
-    expect($media->conversions)->toHaveCount(1);
+    expect($media->conversions)->toHaveCount(0);
 });
 
 it('generates non existant parent conversion when a child is executed', function () {

@@ -7,6 +7,7 @@ namespace Elegantly\Media\Concerns;
 use Elegantly\Media\Compat\MediaCollectionBuilder;
 use Elegantly\Media\Compat\PendingMediaAdder;
 use Elegantly\Media\Enums\MediaState;
+use Elegantly\Media\Enums\MediaType;
 use Elegantly\Media\Events\MediaAddedEvent;
 use Elegantly\Media\Exceptions\InvalidMimeTypeException;
 use Elegantly\Media\Helpers\File as HelpersFile;
@@ -23,9 +24,7 @@ use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Http\File;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use LogicException;
-use RuntimeException;
 
 /**
  * @mixin Model
@@ -220,12 +219,14 @@ trait HasMedia
             );
         }
 
-        $media->generateConversions(
-            filter: fn ($definition) => $definition->immediate,
-            force: true,
-            withChildren: true,
-            withForceChildren: true,
-        );
+        if ($media->type !== MediaType::Image) {
+            $media->generateConversions(
+                filter: fn ($definition) => $definition->immediate,
+                force: true,
+                withChildren: true,
+                withForceChildren: true,
+            );
+        }
 
         if ($onAdded = $collection?->onAdded) {
             $onAdded($media);
@@ -239,7 +240,7 @@ trait HasMedia
     /**
      * Создаёт Media-запись БЕЗ физического файла (state=pending) для асинхронной
      * загрузки: файл уже лежит на temp-диске, копирование на финальный диск
-     * выполняет Media::finalizePending() (defer/sweep). MediaAddedEvent здесь
+     * выполняет Media::finalizePending() (application job/recovery). MediaAddedEvent здесь
      * НЕ кидается — он стреляет только после успешной финализации.
      *
      * @param  array<array-key, mixed>|null  $metadata

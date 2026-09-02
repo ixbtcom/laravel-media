@@ -5,12 +5,14 @@ declare(strict_types=1);
 use Elegantly\Media\Enums\MediaState;
 use Elegantly\Media\Events\MediaAddedEvent;
 use Elegantly\Media\Models\Media;
+use Elegantly\Media\Tests\Models\Test;
 use Elegantly\Media\Tests\Models\TestCollections;
+use Elegantly\Media\Tests\Models\TestConversions;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 
-function makePendingMedia(TestCollections $model, string $tempPath = 'editorjs-tmp/foo.jpg', bool $withFile = true): Media
+function makePendingMedia(Test $model, string $tempPath = 'editorjs-tmp/foo.jpg', bool $withFile = true, string $collectionName = 'multiple'): Media
 {
     if ($withFile) {
         $upload = UploadedFile::fake()->image(basename($tempPath), width: 16, height: 9);
@@ -20,7 +22,7 @@ function makePendingMedia(TestCollections $model, string $tempPath = 'editorjs-t
     return $model->addPendingMedia(
         tempDisk: 'temp',
         tempPath: $tempPath,
-        collectionName: 'multiple',
+        collectionName: $collectionName,
         name: 'media-abc',
         disk: 'media',
         metadata: ['source' => 'editorjs'],
@@ -39,6 +41,19 @@ it('treats missing state as ready (NULL ≡ ready for pre-existing rows)', funct
     expect($media->state)->toBeNull();
     expect($media->isReady())->toBeTrue();
     expect($media->isPending())->toBeFalse();
+});
+
+it('finalizePending does not generate immediate image conversions', function () {
+    Storage::fake('temp');
+    Storage::fake('media');
+
+    $model = new TestConversions;
+    $model->save();
+
+    $media = makePendingMedia($model, collectionName: 'simple-immediate');
+
+    expect($media->finalizePending())->toBeTrue();
+    expect($media->refresh()->conversions()->count())->toBe(0);
 });
 
 it('casts explicit state values to MediaState enum', function () {
