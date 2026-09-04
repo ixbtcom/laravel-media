@@ -87,6 +87,7 @@ it('creates pending media without a file and without MediaAddedEvent', function 
         'path' => 'editorjs-tmp/foo.jpg',
         'target_disk' => 'media',
         'node' => config('media.local_node'),
+        'target_path' => "{$media->uuid}/media-abc.jpg",
     ]);
     expect($media->model_id)->toBe($model->id);
 
@@ -321,6 +322,7 @@ it('finalizePending copies from a remote temp disk without a local path', functi
     );
 
     expect($media->metadata['pending_temp'])->not->toHaveKey('node');
+    expect($media->metadata['pending_temp']['target_path'])->toBe("{$media->uuid}/media-abc.mp4");
     expect($media->finalizePending())->toBeTrue();
 
     $media->refresh();

@@ -230,6 +230,13 @@ class Media extends Model
             // приходит уже без исходного запроса.
             $writeOptions = $this->metadata['write_options'] ?? null;
             $writeOptions = is_array($writeOptions) && $writeOptions !== [] ? $writeOptions : null;
+            $targetPath = isset($temp['target_path']) && is_string($temp['target_path'])
+                ? $temp['target_path']
+                : null;
+            $targetDirectory = $targetPath !== null ? dirname($targetPath) : null;
+            $targetName = $targetPath !== null
+                ? pathinfo(basename($targetPath), PATHINFO_FILENAME)
+                : $this->name;
 
             // Один вызов на оба случая: локальный temp даёт путь в файловой
             // системе, удалённый копируется из диска в диск. ⛔ Тащить объект с
@@ -237,7 +244,8 @@ class Media extends Model
             // таймаут PHP на крупном ролике.
             $this->storeFile(
                 file: new StoredFile($temp['disk'], $temp['path']),
-                name: $this->name,
+                destination: $targetDirectory === '.' ? null : $targetDirectory,
+                name: $targetName,
                 disk: $targetDisk,
                 options: $writeOptions,
             );

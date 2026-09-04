@@ -14,6 +14,7 @@ use Elegantly\Media\Helpers\File as HelpersFile;
 use Elegantly\Media\Jobs\DeleteModelMediaJob;
 use Elegantly\Media\MediaCollection;
 use Elegantly\Media\Models\Media;
+use Elegantly\Media\PathGenerators\AbstractPathGenerator;
 use Elegantly\Media\StoredFile;
 use Elegantly\Media\Support\MediaUrlResolver;
 use Illuminate\Contracts\Support\Arrayable;
@@ -295,6 +296,17 @@ trait HasMedia
 
         $media->metadata = array_merge($metadata ?? [], ['pending_temp' => $pendingTemp]);
         $media->save();
+
+        /** @var class-string<AbstractPathGenerator> $pathGenerator */
+        $pathGenerator = config('media.default_path_generator');
+        $extension = strtolower((string) pathinfo($tempPath, PATHINFO_EXTENSION));
+        $fileName = HelpersFile::sanitizeFilename($media->name);
+        if ($extension !== '') {
+            $fileName .= ".{$extension}";
+        }
+        $pendingTemp['target_path'] = (new $pathGenerator)->generate($media, null, $fileName);
+        $media->metadata = array_merge($metadata ?? [], ['pending_temp' => $pendingTemp]);
+        $media->saveQuietly();
 
         if ($this->relationLoaded('media')) {
             $this->media->push($media);
