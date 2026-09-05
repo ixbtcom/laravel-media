@@ -114,6 +114,11 @@ it('finalizePending copies the temp file to the final disk and fires MediaAddedE
 
     $media = makePendingMedia($model);
 
+    // Контракт: путь на финальном диске фиксируется в pending_temp.target_path
+    // при создании pending-строки, и финализация кладёт файл ровно по нему.
+    $targetPath = $media->metadata['pending_temp']['target_path'] ?? null;
+    expect($targetPath)->toBeString()->not->toBe('');
+
     expect($media->finalizePending())->toBeTrue();
 
     $media->refresh();
@@ -121,8 +126,8 @@ it('finalizePending copies the temp file to the final disk and fires MediaAddedE
     expect($media->state)->toBe(MediaState::Ready);
     expect($media->isReady())->toBeTrue();
     expect($media->disk)->toBe('media');
-    expect($media->path)->not->toBeNull();
-    expect(Storage::disk('media')->exists($media->path))->toBeTrue();
+    expect($media->path)->toBe($targetPath);
+    expect(Storage::disk('media')->exists($targetPath))->toBeTrue();
     // Temp-файл сохраняется до cleanup-джобы: открытый редактор ссылается
     // на temp-URL до пересохранения формы.
     expect(Storage::disk('temp')->exists('editorjs-tmp/foo.jpg'))->toBeTrue();
