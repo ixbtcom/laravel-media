@@ -23,7 +23,6 @@ class MediaServiceProvider extends PackageServiceProvider
             ->hasConfigFile()
             ->hasMigration('create_media_table')
             ->hasMigration('create_media_conversions_table')
-            ->hasMigration('migrate_generated_conversions_to_media_conversions_table')
             ->hasMigration('migrate_state_in_media_conversions_table')
             ->hasMigration('add_state_to_media_table')
             ->hasCommand(GenerateMediaConversionsCommand::class)

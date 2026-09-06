@@ -532,6 +532,8 @@ new MediaCollection(
 
 ### Async vs. Sync Conversions
 
+> **iXBT fork:** immediate conversions are **not** generated for images — `HasMedia` runs them only when `$media->type !== MediaType::Image` (`src/Concerns/HasMedia.php`). Image variants are served by the Thumbor CDN by named size types from `common/config/image_sizes.php` (`img_type()` / `ImageSizeType`), so the mechanics below apply to non-image media (video posters, document previews) only.
+
 When adding new media, its conversions can be either dispatched asynchronously or generated synchronously.
 
 You can configure the strategy in the conversion definition using the `queued` and `queue` parameters:
