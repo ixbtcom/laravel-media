@@ -90,6 +90,12 @@ class MediaConversion extends Model
         });
 
         static::deleting(function (MediaConversion $conversion) {
+            if (data_get($conversion->metadata, 'directory') === true) {
+                $conversion->deleteDirectory();
+
+                return;
+            }
+
             $conversion->deleteFile();
         });
     }
