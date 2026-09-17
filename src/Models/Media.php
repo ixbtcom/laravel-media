@@ -113,7 +113,12 @@ class Media extends Model
             $media->loadMissing('conversions');
             $media->conversions->each(fn ($conversion) => $conversion->delete());
 
-            $media->deleteFile();
+            if (data_get($media->metadata, 'directory') === true) {
+                $media->deleteDirectory();
+            } else {
+                $media->deleteFile();
+            }
+
             $media->deletePendingTempFile();
         });
     }

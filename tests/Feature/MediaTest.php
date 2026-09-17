@@ -478,3 +478,48 @@ it('reorder models from a custom sequence', function () {
     expect($first_media->refresh()->order_column)->toBe(2);
     expect($second_media->refresh()->order_column)->toBe(4);
 });
+
+it('deletes the files in a directory when a directory media is deleted', function () {
+    /** @var Media $media */
+    $media = MediaFactory::new()->make([
+        'disk' => 'media',
+        'path' => 'videos/example/hls/master.m3u8',
+        'mime_type' => 'application/vnd.apple.mpegurl',
+        'metadata' => ['directory' => true],
+    ]);
+
+    Storage::fake('media');
+
+    $media->save();
+
+    Storage::disk('media')->put($media->path, '#EXTM3U');
+    Storage::disk('media')->put('videos/example/hls/playlist-720p.m3u8', '#EXTM3U');
+    Storage::disk('media')->put('videos/example/hls/segment-000.ts', 'segment');
+
+    $media->delete();
+
+    Storage::disk('media')->assertMissing('videos/example/hls/master.m3u8');
+    Storage::disk('media')->assertMissing('videos/example/hls/playlist-720p.m3u8');
+    Storage::disk('media')->assertMissing('videos/example/hls/segment-000.ts');
+});
+
+it('keeps sibling files when deleting a media without the directory flag', function () {
+    /** @var Media $media */
+    $media = MediaFactory::new()->make([
+        'disk' => 'media',
+        'path' => 'videos/example/poster/poster.webp',
+        'mime_type' => 'image/webp',
+    ]);
+
+    Storage::fake('media');
+
+    $media->save();
+
+    Storage::disk('media')->put($media->path, 'poster');
+    Storage::disk('media')->put('videos/example/poster/other.webp', 'other');
+
+    $media->delete();
+
+    Storage::disk('media')->assertMissing('videos/example/poster/poster.webp');
+    Storage::disk('media')->assertExists('videos/example/poster/other.webp');
+});
