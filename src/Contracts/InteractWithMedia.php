@@ -10,7 +10,6 @@ use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
 
@@ -112,23 +111,4 @@ interface InteractWithMedia
         ?string $collectionGroup = null,
         array $except = [],
     ): static;
-
-    /**
-     * @return \Illuminate\Support\Collection<int, PendingDispatch>
-     */
-    public function dispatchMediaConversion(
-        string $conversionName,
-        bool $force = true,
-        ?string $collectionName = null,
-        ?string $collectionGroup = null,
-    ): \Illuminate\Support\Collection;
-
-    /**
-     * @return Collection<int, TMedia>
-     */
-    public function deleteMediaConversion(
-        string $conversionName,
-        ?string $collectionName = null,
-        ?string $collectionGroup = null,
-    ): Collection;
 }

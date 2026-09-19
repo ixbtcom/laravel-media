@@ -7,7 +7,6 @@ namespace Elegantly\Media\Concerns;
 use Elegantly\Media\Compat\MediaCollectionBuilder;
 use Elegantly\Media\Compat\PendingMediaAdder;
 use Elegantly\Media\Enums\MediaState;
-use Elegantly\Media\Enums\MediaType;
 use Elegantly\Media\Events\MediaAddedEvent;
 use Elegantly\Media\Exceptions\InvalidMimeTypeException;
 use Elegantly\Media\Helpers\File as HelpersFile;
@@ -21,7 +20,6 @@ use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Http\File;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -220,15 +218,6 @@ trait HasMedia
             );
         }
 
-        if ($media->type !== MediaType::Image) {
-            $media->generateConversions(
-                filter: fn ($definition) => $definition->immediate,
-                force: true,
-                withChildren: true,
-                withForceChildren: true,
-            );
-        }
-
         if ($onAdded = $collection?->onAdded) {
             $onAdded($media);
         }
@@ -412,50 +401,6 @@ trait HasMedia
 
         return $this;
     }
-
-    /**
-     * @return \Illuminate\Support\Collection<int, PendingDispatch>
-     */
-    public function dispatchMediaConversion(
-        string $conversionName,
-        bool $force = true,
-        ?string $collectionName = null,
-        ?string $collectionGroup = null,
-        bool $withChildren = false,
-        bool $withForceChildren = false,
-    ): \Illuminate\Support\Collection {
-
-        return $this
-            ->getMedia($collectionName, $collectionGroup)
-            ->toBase()
-            ->map(function ($media) use ($conversionName, $force, $withChildren, $withForceChildren) {
-                return $media->dispatchConversion(
-                    conversion: $conversionName,
-                    force: $force,
-                    withChildren: $withChildren,
-                    withForceChildren: $withForceChildren
-                );
-            })
-            ->filter();
-
-    }
-
-    /**
-     * @return Collection<int, TMedia>
-     */
-    public function deleteMediaConversion(
-        string $conversionName,
-        ?string $collectionName = null,
-        ?string $collectionGroup = null,
-    ): Collection {
-        return $this
-            ->getMedia($collectionName, $collectionGroup)
-            ->each(function ($media) use ($conversionName) {
-                return $media->deleteConversion($conversionName);
-            });
-    }
-
-    // Spatie Compatibility Shim -------------------------------------------------------------------
 
     /**
      * @var array<string, MediaCollectionBuilder>

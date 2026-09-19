@@ -13,11 +13,9 @@ use Elegantly\Media\Enums\MediaConversionState;
 use Elegantly\Media\Enums\MediaState;
 use Elegantly\Media\Enums\MediaType;
 use Elegantly\Media\Events\MediaAddedEvent;
-use Elegantly\Media\Events\MediaConversionAddedEvent;
 use Elegantly\Media\Events\MediaFileStoredEvent;
 use Elegantly\Media\FileDownloaders\HttpFileDownloader;
 use Elegantly\Media\Helpers\File;
-use Elegantly\Media\MediaConversionDefinition;
 use Elegantly\Media\PathGenerators\AbstractPathGenerator;
 use Elegantly\Media\StoredFile;
 use Elegantly\Media\Support\MediaRightsEvidence;
@@ -31,7 +29,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Http\File as HttpFile;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
@@ -264,23 +261,6 @@ class Media extends Model
             // Temp-файл НЕ удаляем: блок в открытом редакторе ссылается на temp-URL
             // до пересохранения формы — удаление сломало бы превью. Осиротевшие
             // temp-файлы (>24ч, без pending_temp-ссылок) убирает cleanup-джоба.
-
-            if ($this->type !== MediaType::Image) {
-                try {
-                    $this->generateConversions(
-                        filter: fn ($definition) => $definition->immediate,
-                        force: true,
-                        withChildren: true,
-                        withForceChildren: true,
-                    );
-                } catch (\Throwable $e) {
-                    logger()->error('Media finalizePending: conversions failed', [
-                        'media_id' => $this->id,
-                        'uuid' => $this->uuid,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
 
             try {
                 event(new MediaAddedEvent($this));
@@ -545,139 +525,6 @@ class Media extends Model
     // Managing Conversions ----------------------------------------------------------
 
     /**
-     * @return MediaConversionDefinition[]
-     */
-    public function registerConversions(): array
-    {
-        return [];
-    }
-
-    /**
-     * Retreive conversions defined in both the Media and the Model MediaCollection
-     * Model's MediaCollection definitions override the Media's definitions
-     *
-     * @return array<string, MediaConversionDefinition>
-     */
-    public function getConversionsDefinitions(): array
-    {
-        $conversions = collect($this->registerConversions());
-
-        if (
-            $this->model &&
-            $collection = $this->model->getMediaCollection($this->collection_name)
-        ) {
-            $conversions->push(...array_values($collection->conversions));
-        }
-
-        /** @var array<string, MediaConversionDefinition> */
-        $value = $conversions->keyBy('name')->toArray();
-
-        return $value;
-    }
-
-    public function getConversionDefinition(string $name): ?MediaConversionDefinition
-    {
-        /** @var ?MediaConversionDefinition $value */
-        $value = data_get(
-            target: $this->getConversionsDefinitions(),
-            key: str_replace('.', '.conversions.', $name)
-        );
-
-        return $value;
-    }
-
-    /**
-     * @return array<string, MediaConversionDefinition>
-     */
-    public function getChildrenConversionsDefinitions(string $name): array
-    {
-        return $this->getConversionDefinition($name)->conversions ?? [];
-    }
-
-    /**
-     * Dispatch any conversion while generating missing parents.
-     */
-    public function dispatchConversion(
-        string $conversion,
-        bool $force = true,
-        bool $withChildren = false,
-        bool $withForceChildren = false,
-        ?string $queue = null,
-    ): ?PendingDispatch {
-        if (
-            $force === false &&
-            $this->hasConversion($conversion, [MediaConversionState::Succeeded, MediaConversionState::Pending])
-        ) {
-            return null;
-        }
-
-        if ($definition = $this->getConversionDefinition($conversion)) {
-
-            $converter = ($definition->converter)($this->withoutRelations())
-                ->conversion($conversion)
-                ->withChildren($withChildren, $withForceChildren);
-
-            $job = dispatch($converter);
-
-            if ($queue) {
-                $job->onQueue($queue);
-            } elseif ($definition->queue) {
-                $job->onQueue($definition->queue);
-            }
-
-            return $job;
-
-        }
-
-        return null;
-    }
-
-    /**
-     * Execute any conversion while generating missing parents.
-     */
-    public function executeConversion(
-        string $conversion,
-        bool $force = true,
-        bool $withChildren = false,
-        bool $withForceChildren = false,
-    ): ?MediaConversion {
-
-        if (
-            $force === false &&
-            $this->hasConversion($conversion, MediaConversionState::Succeeded)
-        ) {
-            return null;
-        }
-
-        if ($definition = $this->getConversionDefinition($conversion)) {
-
-            return ($definition->converter)($this)
-                ->conversion($conversion)
-                ->withChildren($withChildren, $withForceChildren)
-                ->handle();
-        }
-
-        return null;
-    }
-
-    public function getOrExecuteConversion(
-        string $name,
-        bool $withChildren = false,
-        bool $withForceChildren = false,
-    ): ?MediaConversion {
-        if ($conversion = $this->getConversion($name, [MediaConversionState::Succeeded, MediaConversionState::Pending])) {
-            return $conversion;
-        }
-
-        return $this->executeConversion(
-            conversion: $name,
-            force: true,
-            withChildren: $withChildren,
-            withForceChildren: $withForceChildren
-        );
-    }
-
-    /**
      * @param  null|string|string[]  $fallback
      * @param  null|MediaConversionState|MediaConversionState[]  $state
      */
@@ -685,7 +532,6 @@ class Media extends Model
         string $name,
         null|MediaConversionState|array $state = null,
         null|string|array $fallback = null,
-        bool $dispatch = false,
     ): ?MediaConversion {
 
         $state = Arr::wrap($state);
@@ -700,8 +546,6 @@ class Media extends Model
 
         if ($conversion) {
             return $conversion;
-        } elseif ($dispatch) {
-            $this->dispatchConversion($name, false);
         }
 
         if (is_string($fallback)) {
@@ -718,228 +562,6 @@ class Media extends Model
 
         return null;
     }
-
-    /**
-     * @param  null|MediaConversionState|MediaConversionState[]  $state
-     */
-    public function hasConversion(
-        string $name,
-        null|MediaConversionState|array $state = null
-    ): bool {
-        return (bool) $this->getConversion($name, $state);
-    }
-
-    public function getParentConversion(string $name): ?MediaConversion
-    {
-        if (! str_contains($name, '.')) {
-            return null;
-        }
-
-        return $this->getConversion(
-            str($name)->beforeLast('.')->value()
-        );
-    }
-
-    /**
-     * @return EloquentCollection<int, MediaConversion>
-     */
-    public function getChildrenConversions(string $name): EloquentCollection
-    {
-        return $this
-            ->conversions
-            ->filter(fn ($conversion) => str_starts_with($conversion->conversion_name, "{$name}."));
-    }
-
-    public function replaceConversion(MediaConversion $conversion): MediaConversion
-    {
-        $existingConversion = $this->getConversion($conversion->conversion_name);
-
-        if ($existingConversion?->is($conversion)) {
-            return $conversion;
-        }
-
-        if ($existingConversion) {
-            $existingConversion->delete();
-            $this->setRelation(
-                'conversions',
-                $this->conversions->except([$existingConversion->id])
-            );
-        }
-
-        $this->conversions()->save($conversion);
-        $this->conversions->push($conversion);
-
-        return $conversion;
-    }
-
-    /**
-     * Store a file as a conversion and dispatch children conversions
-     *
-     * @param  string|resource|UploadedFile|HttpFile  $file
-     * @param  array<array-key, mixed>  $metadata
-     * @param  array<array-key, mixed>  $attributes
-     */
-    public function addConversion(
-        $file,
-        string $conversionName,
-        ?MediaConversion $parent = null,
-        ?string $name = null,
-        ?string $destination = null,
-        ?string $disk = null,
-        ?array $metadata = null,
-        array $attributes = [],
-        bool $deleteChildren = false
-    ): MediaConversion {
-
-        /** @var class-string<AbstractPathGenerator> */
-        $pathGenerator = config('media.default_path_generator');
-
-        /**
-         * Prefix name with parent if not already done
-         */
-        if ($parent && ! str_contains($conversionName, '.')) {
-            $conversionName = "{$parent->conversion_name}.{$conversionName}";
-        }
-
-        if ($existingConversion = $this->getConversion($conversionName)) {
-            $existingConversion->delete();
-            $this->setRelation(
-                'conversions',
-                $this->conversions->except([$existingConversion->id])
-            );
-        }
-
-        /** @var class-string<MediaConversion> */
-        $mediaConversionModel = config()->string('media.media_conversion_model');
-
-        $conversion = new $mediaConversionModel;
-
-        $conversion->media_id = $this->id;
-        $conversion->conversion_name = $conversionName;
-        $conversion->state = MediaConversionState::Succeeded;
-
-        $conversion->metadata = $metadata;
-        $conversion->fill($attributes);
-
-        $conversion->storeFile(
-            file: $file,
-            destination: $destination ?? (new $pathGenerator)->conversion($this, $conversion)->value(),
-            name: $name,
-            disk: $disk ?? $this->disk
-        );
-
-        $this->conversions->push($conversion);
-
-        if ($deleteChildren) {
-            $this->deleteChildrenConversions($conversionName);
-        }
-
-        event(new MediaConversionAddedEvent($conversion));
-
-        return $conversion;
-    }
-
-    /**
-     * Execute or dispatch first level conversions based on their definition
-     *
-     * @param  null|(Closure(MediaConversionDefinition $definition):bool)  $filter
-     * @param  ?bool  $queued  force queueing the conversions
-     * @return $this
-     */
-    public function generateConversions(
-        ?MediaConversion $parent = null,
-        ?Closure $filter = null,
-        ?bool $queued = null,
-        bool $force = false,
-        bool $withChildren = false,
-        bool $withForceChildren = false,
-    ): static {
-
-        if ($parent) {
-            $definitions = $this->getChildrenConversionsDefinitions($parent->conversion_name);
-        } else {
-            $definitions = $this->getConversionsDefinitions();
-        }
-
-        foreach ($definitions as $definition) {
-
-            if ($filter && ! $filter($definition)) {
-                continue;
-            }
-
-            $conversion = $parent ? "{$parent->conversion_name}.{$definition->name}" : $definition->name;
-
-            if ($queued ?? $definition->queued) {
-
-                $job = $this->dispatchConversion(
-                    conversion: $conversion,
-                    force: $force,
-                    withChildren: $withChildren,
-                    withForceChildren: $withForceChildren,
-                );
-
-                if ($definition->delay !== null) {
-                    $job?->delay($definition->delay);
-                }
-
-            } else {
-
-                // A failed conversion should not interrupt the process
-                try {
-                    $this->executeConversion(
-                        conversion: $conversion,
-                        force: $force,
-                        withChildren: $withChildren,
-                        withForceChildren: $withForceChildren,
-                    );
-                } catch (\Throwable $th) {
-                    report($th);
-                }
-
-            }
-        }
-
-        return $this;
-    }
-
-    /**
-     * Delete Media Conversions and its derived conversions
-     */
-    public function deleteConversion(string $conversionName): static
-    {
-        $deleted = $this->conversions
-            ->filter(function ($conversion) use ($conversionName) {
-                if ($conversion->conversion_name === $conversionName) {
-                    return true;
-                }
-
-                return str($conversion->conversion_name)->startsWith("{$conversionName}.");
-            })
-            ->each(fn ($conversion) => $conversion->delete());
-
-        $this->setRelation(
-            'conversions',
-            $this->conversions->except($deleted->modelKeys())
-        );
-
-        return $this;
-    }
-
-    public function deleteChildrenConversions(string $conversionName): static
-    {
-        $deleted = $this
-            ->getChildrenConversions($conversionName)
-            ->each(fn ($conversion) => $conversion->delete());
-
-        $this->setRelation(
-            'conversions',
-            $this->conversions->except($deleted->modelKeys())
-        );
-
-        return $this;
-    }
-
-    // \ Managing Conversions ----------------------------------------------------------
 
     /**
      * @param  array<array-key, float|int|string>  $keys
@@ -1016,14 +638,12 @@ class Media extends Model
      * @param  null|bool|string|array<int, string|bool>  $fallback
      * @param  null|array<array-key, mixed>  $parameters
      * @param  null|class-string<AbstractUrlFormatter>  $formatter
-     * @param  bool  $dispatch  Dispatch not found conversion
      */
     public function getUrl(
         ?string $conversion = null,
         null|bool|string|array $fallback = null,
         ?array $parameters = null,
         ?string $formatter = null,
-        bool $dispatch = false
     ): ?string {
 
         $url = null;
@@ -1032,7 +652,6 @@ class Media extends Model
             $mediaConversion = $this->getConversion(
                 name: $conversion,
                 state: MediaConversionState::Succeeded,
-                dispatch: $dispatch,
             );
 
             if ($mediaConversion) {

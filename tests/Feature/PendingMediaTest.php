@@ -7,7 +7,6 @@ use Elegantly\Media\Events\MediaAddedEvent;
 use Elegantly\Media\Models\Media;
 use Elegantly\Media\Tests\Models\Test;
 use Elegantly\Media\Tests\Models\TestCollections;
-use Elegantly\Media\Tests\Models\TestConversions;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
@@ -43,14 +42,14 @@ it('treats missing state as ready (NULL ≡ ready for pre-existing rows)', funct
     expect($media->isPending())->toBeFalse();
 });
 
-it('finalizePending does not generate immediate image conversions', function () {
+it('finalizePending leaves the media without any conversion', function () {
     Storage::fake('temp');
     Storage::fake('media');
 
-    $model = new TestConversions;
+    $model = new TestCollections;
     $model->save();
 
-    $media = makePendingMedia($model, collectionName: 'simple-immediate');
+    $media = makePendingMedia($model, collectionName: 'multiple');
 
     expect($media->finalizePending())->toBeTrue();
     expect($media->refresh()->conversions()->count())->toBe(0);

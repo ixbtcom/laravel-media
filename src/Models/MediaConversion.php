@@ -9,19 +9,11 @@ use Elegantly\Media\Concerns\InteractWithFiles;
 use Elegantly\Media\Database\Factories\MediaConversionFactory;
 use Elegantly\Media\Enums\MediaConversionState;
 use Elegantly\Media\Enums\MediaType;
-use Elegantly\Media\Events\MediaFileStoredEvent;
-use Elegantly\Media\FileDownloaders\HttpFileDownloader;
-use Elegantly\Media\Helpers\File;
-use Elegantly\Media\TemporaryDirectory;
 use Elegantly\Media\Traits\HasUuid;
-use Exception;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Http\File as HttpFile;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Str;
 
 /**
  * @property int $id
@@ -117,63 +109,5 @@ class MediaConversion extends Model
     public function url(): Attribute
     {
         return Attribute::get(fn () => $this->getUrl());
-    }
-
-    /**
-     * @param  string|UploadedFile|HttpFile|resource  $file
-     */
-    public function storeFile(
-        mixed $file,
-        string $destination,
-        ?string $name = null,
-        ?string $disk = null,
-    ): static {
-        if ($file instanceof UploadedFile || $file instanceof HttpFile) {
-            return $this->storeFileFromHttpFile($file, $destination, $name, $disk);
-        }
-
-        if (
-            (is_string($file) && filter_var($file, FILTER_VALIDATE_URL)) ||
-            ! is_string($file)
-        ) {
-            return TemporaryDirectory::callback(function ($temporaryDirectory) use ($file, $destination, $name, $disk) {
-                $path = HttpFileDownloader::download(
-                    file: $file,
-                    destination: $temporaryDirectory->path()
-                );
-
-                return $this->storeFileFromHttpFile(new HttpFile($path), $destination, $name, $disk);
-            });
-        }
-
-        return $this->storeFileFromHttpFile(new HttpFile($file), $destination, $name, $disk);
-    }
-
-    public function storeFileFromHttpFile(
-        UploadedFile|HttpFile $file,
-        string $destination,
-        ?string $name = null,
-        ?string $disk = null,
-    ): static {
-
-        $name ??= File::name($file) ?? Str::random(6);
-        $disk ??= $this->disk ?? config()->string('media.disk');
-
-        $path = $this->putFile(
-            disk: $disk,
-            destination: $destination,
-            file: $file,
-            name: $name,
-        );
-
-        if (! $path) {
-            throw new Exception("Storing Media Conversion File '{$file->getPath()}' to disk '{$disk}' at '{$destination}' failed.");
-        }
-
-        $this->save();
-
-        event(new MediaFileStoredEvent($this));
-
-        return $this;
     }
 }

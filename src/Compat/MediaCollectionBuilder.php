@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Elegantly\Media\Compat;
 
 use Elegantly\Media\MediaCollection;
-use Elegantly\Media\MediaConversionDefinition;
 
 /**
  * Spatie-compatible fluent collection builder.
@@ -23,9 +22,6 @@ class MediaCollectionBuilder
 
     /** @var string[]|null */
     private ?array $acceptedMimeTypes = null;
-
-    /** @var MediaConversionDefinition[] */
-    private array $conversions = [];
 
     public function __construct(private string $name) {}
 
@@ -54,16 +50,6 @@ class MediaCollectionBuilder
     }
 
     /**
-     * @param  MediaConversionDefinition[]  $conversions
-     */
-    public function conversions(array $conversions): static
-    {
-        $this->conversions = $conversions;
-
-        return $this;
-    }
-
-    /**
      * Build the MediaCollection object from accumulated settings.
      */
     public function build(): MediaCollection
@@ -73,7 +59,6 @@ class MediaCollectionBuilder
             disk: $this->disk,
             single: $this->single,
             acceptedMimeTypes: $this->acceptedMimeTypes,
-            conversions: $this->conversions,
         );
     }
 }
