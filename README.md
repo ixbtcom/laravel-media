@@ -822,7 +822,7 @@ This provides a convenient way to process conversions in bulk or automate them w
 
 ### Format Media URLs
 
-Some cloud providers like Cloudflare, Bunny, or ImageKit allow you to create instant transformations of your images and videos using specially formatted URLs.
+Some cloud providers allow you to create instant transformations of your images and videos using specially formatted URLs. This fork ships the Thumbor formatter used by the project.
 
 This package gives you a simple way to format your URLs so you can take advantage of these services.
 

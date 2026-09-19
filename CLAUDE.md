@@ -84,7 +84,6 @@ composer lint          # Pint + PHPStan
 - **Early save при IdPathGenerator**: Media сохраняется в БД *до* генерации пути, чтобы получить ID для директории. Поле `size` получает default `0` для NOT NULL constraint
 - **`loadMissing('conversions')`** вызывается при удалении Media, чтобы корректно удалить все файлы конверсий
 - **ThumborUrlFormatter** использует `Ixbtcom\Common\Services\ImageService` через string-резолв из контейнера (без hard dependency)
-- **BunnyStream**: `IdPathGenerator` поддерживает диск `bunny_stream` — путь берётся из `metadata.bunny_media_id`
 - **Metadata path**: если в `metadata.path` есть значение, `IdPathGenerator` использует его напрямую (для мигрированных файлов)
 
 ---

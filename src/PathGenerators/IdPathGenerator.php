@@ -16,28 +16,15 @@ use Illuminate\Support\Stringable;
  *   - Conversion: {prefix}/{id}/conversions/{conversion_name}/{uuid}/filename
  *
  * Special cases (via metadata):
- *   - bunny_stream disk: {bunny_media_id}/filename
  *   - metadata['path']: uses the stored path directly
  */
 class IdPathGenerator extends AbstractPathGenerator
 {
     /**
      * @example {prefix}/{id}/
-     * @example {bunny_media_id}/ (for bunny_stream disk)
      */
     public function media(Media $media): Stringable
     {
-        // Bunny Stream: use bunny_media_id from metadata
-        if ($media->disk === 'bunny_stream') {
-            $bunnyMediaId = data_get($media->metadata, 'bunny_media_id');
-
-            if (empty($bunnyMediaId)) {
-                return str('');
-            }
-
-            return str($bunnyMediaId)->finish('/');
-        }
-
         // Custom path stored in metadata (e.g. for migrated files)
         if ($path = data_get($media->metadata, 'path')) {
             return str($path)->finish('/');
