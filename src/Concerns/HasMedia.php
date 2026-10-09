@@ -469,5 +469,14 @@ trait HasMedia
         return null;
     }
 
+    /**
+     * Сбрасывает собранные коллекции: следующий getMediaCollection() заново
+     * вызовет registerMediaCollections() и увидит изменившийся диск владельца.
+     */
+    public function forgetMediaCollections(): void
+    {
+        $this->_collectionBuilders = [];
+    }
+
     // \ Spatie Compatibility Shim -----------------------------------------------------------------
 }

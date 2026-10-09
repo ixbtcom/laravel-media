@@ -16,6 +16,7 @@ use Elegantly\Media\Events\MediaAddedEvent;
 use Elegantly\Media\Events\MediaFileStoredEvent;
 use Elegantly\Media\FileDownloaders\HttpFileDownloader;
 use Elegantly\Media\Helpers\File;
+use Elegantly\Media\MediaCollection;
 use Elegantly\Media\PathGenerators\AbstractPathGenerator;
 use Elegantly\Media\StoredFile;
 use Elegantly\Media\Support\MediaRightsEvidence;
@@ -421,8 +422,8 @@ class Media extends Model
                 $file = $before($file, $temporaryDirectory);
             }
 
-            $path = $this->putFile(
-                disk: $disk,
+            $store = fn (string $target): string|null|false => $this->putFile(
+                disk: $target,
                 destination: $destination,
                 file: $file,
                 name: $name,
@@ -430,8 +431,17 @@ class Media extends Model
                 extension: $extension,
             );
 
+            $primaryError = null;
+
+            try {
+                $path = $store($disk);
+            } catch (\Throwable $e) {
+                $path = null;
+                $primaryError = $e;
+            }
+
             if (! $path) {
-                throw new Exception("Storing Media File '{$file->getPath()}' to disk '{$disk}' at '{$destination}' failed.");
+                $this->storeOnFallbackDisk($store, $file, $disk, $destination, $primaryError);
             }
 
             $this->save();
@@ -441,6 +451,95 @@ class Media extends Model
         event(new MediaFileStoredEvent($this));
 
         return $this;
+    }
+
+    /**
+     * Основной диск коллекции не принял файл: один повтор на резервный диск
+     * коллекции. Без резерва (или когда он и есть упавший диск) - прежняя ошибка.
+     *
+     * @param  Closure(string $disk): (string|null|false)  $store
+     */
+    protected function storeOnFallbackDisk(
+        Closure $store,
+        UploadedFile|HttpFile $file,
+        string $disk,
+        string $destination,
+        ?\Throwable $primaryError,
+    ): void {
+        $message = "Storing Media File '{$file->getPath()}' to disk '{$disk}' at '{$destination}' failed.";
+        $collection = $this->fallbackCollection();
+        $fallbackDisk = $collection?->fallbackDisk;
+
+        if ($fallbackDisk === null || $fallbackDisk === $disk) {
+            throw $primaryError ?? new Exception($message);
+        }
+
+        $fallbackError = null;
+
+        try {
+            $path = $store($fallbackDisk);
+        } catch (\Throwable $e) {
+            $path = null;
+            $fallbackError = $e;
+        }
+
+        if (! $path) {
+            $this->disk = $disk;
+            $this->path = null;
+            $fallbackReason = $fallbackError?->getMessage() ?? 'write returned false';
+
+            logger()->error('Media fallback disk failed', [
+                'uuid' => $this->uuid,
+                'collection' => $this->collection_name,
+                'disk' => $disk,
+                'fallback_disk' => $fallbackDisk,
+                'error' => $primaryError?->getMessage(),
+                'fallback_error' => $fallbackReason,
+            ]);
+
+            throw new Exception(
+                "{$message} Fallback disk '{$fallbackDisk}' failed too: {$fallbackReason}",
+                previous: $primaryError,
+            );
+        }
+
+        logger()->warning('Media stored to fallback disk', [
+            'uuid' => $this->uuid,
+            'collection' => $this->collection_name,
+            'disk' => $disk,
+            'fallback_disk' => $fallbackDisk,
+            'error' => $primaryError?->getMessage(),
+        ]);
+
+        if ($collection->onFallbackStored === null) {
+            return;
+        }
+
+        // Файл уже на резерве и disk строки фактический: сбой владельца не
+        // отменяет запись, а следующий отказ основного диска повторит колбэк.
+        try {
+            ($collection->onFallbackStored)($this, $disk, $fallbackDisk);
+        } catch (\Throwable $e) {
+            logger()->error('Media fallback disk callback failed', [
+                'uuid' => $this->uuid,
+                'collection' => $this->collection_name,
+                'fallback_disk' => $fallbackDisk,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function fallbackCollection(): ?MediaCollection
+    {
+        if ($this->model_type === null) {
+            return null;
+        }
+
+        $owner = $this->relationLoaded('model') ? $this->model : $this->model()->first();
+
+        return $owner instanceof InteractWithMedia
+            ? $owner->getMediaCollection($this->collection_name)
+            : null;
     }
 
     /**

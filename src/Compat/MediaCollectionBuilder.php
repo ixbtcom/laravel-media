@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Elegantly\Media\Compat;
 
+use Closure;
 use Elegantly\Media\MediaCollection;
+use Elegantly\Media\Models\Media;
 
 /**
  * Spatie-compatible fluent collection builder.
@@ -23,11 +25,29 @@ class MediaCollectionBuilder
     /** @var string[]|null */
     private ?array $acceptedMimeTypes = null;
 
+    private ?string $fallbackDisk = null;
+
+    private ?Closure $onFallbackStored = null;
+
     public function __construct(private string $name) {}
 
     public function useDisk(string $disk): static
     {
         $this->disk = $disk;
+
+        return $this;
+    }
+
+    /**
+     * Диск, на который файл пишется, если основной диск коллекции его не принял.
+     * Колбэк вызывается после успешной записи на резерв.
+     *
+     * @param  null|(Closure(Media $media, string $failedDisk, string $fallbackDisk): void)  $onFallbackStored
+     */
+    public function useFallbackDisk(string $disk, ?Closure $onFallbackStored = null): static
+    {
+        $this->fallbackDisk = $disk;
+        $this->onFallbackStored = $onFallbackStored;
 
         return $this;
     }
@@ -59,6 +79,8 @@ class MediaCollectionBuilder
             disk: $this->disk,
             single: $this->single,
             acceptedMimeTypes: $this->acceptedMimeTypes,
+            fallbackDisk: $this->fallbackDisk,
+            onFallbackStored: $this->onFallbackStored,
         );
     }
 }

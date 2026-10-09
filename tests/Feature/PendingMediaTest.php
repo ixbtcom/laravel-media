@@ -7,6 +7,7 @@ use Elegantly\Media\Events\MediaAddedEvent;
 use Elegantly\Media\Models\Media;
 use Elegantly\Media\Tests\Models\Test;
 use Elegantly\Media\Tests\Models\TestCollections;
+use Elegantly\Media\Tests\Models\TestFallback;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
@@ -339,3 +340,44 @@ it('finalizePending copies from a remote temp disk without a local path', functi
     expect($media->size)->toBe(32);
     expect(Storage::disk('media')->get($media->path))->toBe($payload);
 });
+
+it('finalizePending stores the file on the collection fallback disk when the main disk is down', function (bool $throw) {
+    Storage::fake('temp');
+    Storage::fake('fallback');
+    failingDisk('media', throw: $throw);
+    TestFallback::$fallbackCalls = [];
+
+    $model = new TestFallback;
+    $model->save();
+
+    $media = makePendingMedia($model, collectionName: 'with-fallback');
+
+    expect($media->finalizePending())->toBeTrue();
+
+    $media->refresh();
+
+    expect($media->state)->toBe(MediaState::Ready);
+    expect($media->disk)->toBe('fallback');
+    expect(Storage::disk('fallback')->exists($media->path))->toBeTrue();
+    expect(TestFallback::$fallbackCalls)->toBe([[$media->uuid, 'media', 'fallback']]);
+})->with(['putFileAs returns false' => false, 'putFileAs throws' => true]);
+
+it('finalizePending marks failed when the collection has no fallback disk', function (string $collection) {
+    Storage::fake('temp');
+    failingDisk('media');
+    TestFallback::$fallbackCalls = [];
+
+    $model = new TestFallback;
+    $model->save();
+
+    $media = makePendingMedia($model, collectionName: $collection);
+
+    expect($media->finalizePending())->toBeFalse();
+
+    $media->refresh();
+
+    expect($media->state)->toBe(MediaState::Failed);
+    expect($media->path)->toBeNull();
+    expect($media->disk)->toBe('media');
+    expect(TestFallback::$fallbackCalls)->toBe([]);
+})->with(['no fallback' => 'no-fallback', 'fallback equals the failed disk' => 'same-fallback']);

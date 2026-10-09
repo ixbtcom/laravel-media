@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 use Elegantly\Media\Database\Factories\MediaFactory;
 use Elegantly\Media\Models\Media;
+use Elegantly\Media\Tests\Models\TestFallback;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\UnableToWriteFile;
 
 it('stores an uploaded image', function () {
     /** @var Media $media */
@@ -328,4 +331,65 @@ it('keeps sibling files when deleting a media without the directory flag', funct
 
     Storage::disk('media')->assertMissing('videos/example/poster/poster.webp');
     Storage::disk('media')->assertExists('videos/example/poster/other.webp');
+});
+
+it('adds media to the collection fallback disk when the main disk is down', function () {
+    Storage::fake('fallback');
+    failingDisk('media');
+    Log::spy();
+    TestFallback::$fallbackCalls = [];
+
+    $model = new TestFallback;
+    $model->save();
+
+    $media = $model->addMedia(
+        file: UploadedFile::fake()->image('foo.jpg', width: 16, height: 9),
+        collectionName: 'with-fallback',
+    );
+
+    expect($media->disk)->toBe('fallback');
+    expect($media->refresh()->disk)->toBe('fallback');
+    Storage::disk('fallback')->assertExists($media->path);
+    expect(TestFallback::$fallbackCalls)->toBe([[$media->uuid, 'media', 'fallback']]);
+    Log::shouldHaveReceived('warning')->withArgs(fn (string $message) => $message === 'Media stored to fallback disk')->once();
+});
+
+it('reports both disks when the fallback disk is down too', function () {
+    failingDisk('media', throw: true);
+    failingDisk('fallback', throw: true);
+    TestFallback::$fallbackCalls = [];
+
+    $model = new TestFallback;
+    $model->save();
+
+    try {
+        $model->addMedia(
+            file: UploadedFile::fake()->image('foo.jpg', width: 16, height: 9),
+            collectionName: 'with-fallback',
+        );
+        $this->fail('addMedia must throw when both disks are down');
+    } catch (Exception $e) {
+        expect($e->getMessage())->toContain("'media'")->toContain("'fallback'")->toContain('disk is down');
+        expect($e->getPrevious())->toBeInstanceOf(UnableToWriteFile::class);
+    }
+
+    expect(TestFallback::$fallbackCalls)->toBe([]);
+});
+
+it('keeps the fallback file when the owner callback throws', function () {
+    Storage::fake('fallback');
+    failingDisk('media');
+    Log::spy();
+
+    $model = new TestFallback;
+    $model->save();
+
+    $media = $model->addMedia(
+        file: UploadedFile::fake()->image('foo.jpg', width: 16, height: 9),
+        collectionName: 'throwing-callback',
+    );
+
+    expect($media->refresh()->disk)->toBe('fallback');
+    Storage::disk('fallback')->assertExists($media->path);
+    Log::shouldHaveReceived('error')->withArgs(fn (string $message) => $message === 'Media fallback disk callback failed')->once();
 });
