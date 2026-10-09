@@ -351,7 +351,11 @@ it('adds media to the collection fallback disk when the main disk is down', func
     expect($media->refresh()->disk)->toBe('fallback');
     Storage::disk('fallback')->assertExists($media->path);
     expect(TestFallback::$fallbackCalls)->toBe([[$media->uuid, 'media', 'fallback']]);
-    Log::shouldHaveReceived('warning')->withArgs(fn (string $message) => $message === 'Media stored to fallback disk')->once();
+    Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context) => $message === 'Media stored to fallback disk'
+        && $context['uuid'] === $media->uuid
+        && $context['collection'] === 'with-fallback'
+        && $context['disk'] === 'media'
+        && $context['fallback_disk'] === 'fallback')->once();
 });
 
 it('reports both disks when the fallback disk is down too', function () {

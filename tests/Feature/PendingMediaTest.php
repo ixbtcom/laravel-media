@@ -381,3 +381,37 @@ it('finalizePending marks failed when the collection has no fallback disk', func
     expect($media->disk)->toBe('media');
     expect(TestFallback::$fallbackCalls)->toBe([]);
 })->with(['no fallback' => 'no-fallback', 'fallback equals the failed disk' => 'same-fallback']);
+
+it('finalizePending from a remote temp disk falls back when the main disk is down', function () {
+    // Боевой путь аварии: temp лежит на S3, серверной копии нет (разные
+    // провайдеры), объект тянется потоком и пишется на резерв коллекции.
+    Storage::fake('temp');
+    Storage::fake('fallback');
+    config()->set('filesystems.disks.temp.driver', 's3');
+    failingDisk('media');
+    TestFallback::$fallbackCalls = [];
+
+    $model = new TestFallback;
+    $model->save();
+
+    $payload = "\x00\x00\x00\x18ftypisomiso2avc1mp41\x00\x00\x00\x08mdat";
+    Storage::disk('temp')->put('editorjs-tmp/clip.mp4', $payload);
+
+    $media = $model->addPendingMedia(
+        tempDisk: 'temp',
+        tempPath: 'editorjs-tmp/clip.mp4',
+        collectionName: 'with-fallback',
+        name: 'media-abc',
+        mimeType: 'video/mp4',
+        size: 32,
+    );
+
+    expect($media->finalizePending())->toBeTrue();
+
+    $media->refresh();
+
+    expect($media->state)->toBe(MediaState::Ready);
+    expect($media->disk)->toBe('fallback');
+    expect(Storage::disk('fallback')->get($media->path))->toBe($payload);
+    expect(TestFallback::$fallbackCalls)->toBe([[$media->uuid, 'media', 'fallback']]);
+});

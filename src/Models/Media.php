@@ -535,7 +535,8 @@ class Media extends Model
             return null;
         }
 
-        $owner = $this->relationLoaded('model') ? $this->model : $this->model()->first();
+        // Владельца читаем через writer: очередь не держит read-your-writes (ProxySQL).
+        $owner = $this->relationLoaded('model') ? $this->model : $this->model()->useWritePdo()->first();
 
         return $owner instanceof InteractWithMedia
             ? $owner->getMediaCollection($this->collection_name)
