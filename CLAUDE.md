@@ -14,7 +14,6 @@
   - Методы в HasMedia: `addMediaFromUrl()`, `addMediaFromDisk()`, `addMediaFromRequest()`, `addMediaCollection()`
   - Методы в Media: `getCustomProperty()`, `setCustomProperty()`, `getFullUrl()`
 - **`IdPathGenerator`** — генерация путей по auto-increment ID (совместимо с Spatie `DefaultPathGenerator`): `{prefix}/{id}/filename`
-- **`ThumborUrlFormatter`** — форматирование URL через Thumbor CDN (`Ixbtcom\Common\Services\ImageService`)
 - **`MediaThumbnailConverter`** — FFmpeg-конвертер для генерации thumbnail из видео (с настраиваемым timecode и frames)
 - **Pending-состояние Media (async-загрузка, 2026-07-24):** enum `MediaState` (`pending|ready|failed`), nullable-колонка `state` (`NULL`≡`ready`, миграция `add_state_to_media_table`); `HasMedia::addPendingMedia()` создаёт Media БЕЗ файла (temp-ссылка в `metadata.pending_temp`, для local-диска обязательна `node` из `media.local_node`, `MediaAddedEvent` НЕ кидается); `Media::finalizePending()` идемпотентно копирует temp→финальный диск под `Cache::lock("media-finalize-{uuid}")` и fail-closed отказывается работать с temp чужой ноды; событие только после копии, post-ready side effects не откатывают state; `deletePendingTempFile()` также проверяет владельца. Не путать с Compat `PendingMediaAdder` (fluent-builder). Потребитель: async-загрузка EditorJS (`ixbtadmin/docs/architecture/editorjs-async-upload.md`)
 - Убрана зависимость `spatie/pdf-to-image` — upstream-класс `Converters/Pdf/MediaPdfToImageConverter` остался в дереве, но без неё нерабочий (его тест красный); PDF-конверсии в форке не использовать
@@ -52,7 +51,6 @@ src/
 └── UrlFormatters/
     ├── AbstractUrlFormatter.php
     ├── DefaultUrlFormatter.php
-    ├── ThumborUrlFormatter.php       # Thumbor CDN
     ├── CloudflareImageUrlFormatter.php
     └── CloudflareVideoUrlFormatter.php
 ```
@@ -64,11 +62,11 @@ src/
 ```php
 'model' => Media::class,                        // Можно заменить на свою модель
 'disk' => env('MEDIA_DISK', 'local'),           // Диск хранения
-'default_url_formatter' => DefaultUrlFormatter::class,  // Для CDN: ThumborUrlFormatter::class
+'default_url_formatter' => DefaultUrlFormatter::class,
 'default_path_generator' => UuidPathGenerator::class,   // Для Spatie-совместимости: IdPathGenerator::class
 ```
 
-В ixbtwire/ixbtadmin используется `IdPathGenerator` + `ThumborUrlFormatter`.
+В ixbtwire/ixbtadmin используется `IdPathGenerator` + `DefaultUrlFormatter`. Ресайз картинок - только `Ixbtcom\Common\Services\ImageService` (Media из common: `getResizedImageUrl()`, `getResizedProjectImageUrl()`).
 
 ## Команды
 
@@ -83,7 +81,6 @@ composer lint          # Pint + PHPStan
 
 - **Early save при IdPathGenerator**: Media сохраняется в БД *до* генерации пути, чтобы получить ID для директории. Поле `size` получает default `0` для NOT NULL constraint
 - **`loadMissing('conversions')`** вызывается при удалении Media, чтобы корректно удалить все файлы конверсий
-- **ThumborUrlFormatter** использует `Ixbtcom\Common\Services\ImageService` через string-резолв из контейнера (без hard dependency)
 - **Metadata path**: если в `metadata.path` есть значение, `IdPathGenerator` использует его напрямую (для мигрированных файлов)
 
 ---
