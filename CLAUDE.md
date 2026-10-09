@@ -66,7 +66,7 @@ src/
 'default_path_generator' => UuidPathGenerator::class,   // Для Spatie-совместимости: IdPathGenerator::class
 ```
 
-В ixbtwire/ixbtadmin используется `IdPathGenerator` + `DefaultUrlFormatter`. Ресайз картинок - только `Ixbtcom\Common\Services\ImageService` (Media из common: `getResizedImageUrl()`, `getResizedProjectImageUrl()`).
+В ixbtwire/ixbtadmin используется `IdPathGenerator` + `DefaultUrlFormatter`. Ресайз картинок - только `Ixbtcom\Common\Services\ImageService` (Media из common: `getResponsiveImageUrls()`; один вариант не шире N выбирает `ImageService::urlUpTo()`).
 
 ## Команды
 
