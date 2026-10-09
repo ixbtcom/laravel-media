@@ -41,6 +41,7 @@ I developed this package with the highest degree of flexibility possible and I h
     - [Async vs Sync conversions](#async-vs-sync-conversions)
     - [Delayed conversions](#delayed-conversions)
     - [`onAdded` MediaCollection Callback](#onadded-mediacollection-callback)
+    - [Fallback disk](#fallback-disk)
     - [`onCompleted` MediaConversionDefinition Callback](#oncompleted-mediaconversiondefinition-callback)
     - [Regenerating Child Conversions When a Parent Runs](#regenerating-child-conversions-when-a-parent-runs)
     - [Custom conversions](#custom-conversions)
@@ -630,6 +631,29 @@ With this, you can easily hook into the media addition process and trigger actio
 
 > [!TIP]
 > The same behavior can be achieved by listening to `Elegantly\Media\Events\MediaAddedEvent`.
+
+### Fallback disk
+
+A collection can declare a disk to use when its main disk refuses a write (the write returns `false` or throws).
+The file is written once to the fallback disk, `media.disk` stores the disk that actually holds the file, and the
+optional callback runs after the successful fallback write, for example to make the fallback the owner's main disk:
+
+```php
+$this->addMediaCollection('content_images')
+    ->useDisk($this->extra['image_disk'] ?? 's3')
+    ->useFallbackDisk('s3-images', function (Media $media, string $failedDisk, string $fallbackDisk) {
+        // persist $fallbackDisk as the owner's disk, then $this->forgetMediaCollections()
+    });
+```
+
+The same works with `new MediaCollection(fallbackDisk: ..., onFallbackStored: ...)`. Rules:
+
+- The fallback is skipped when it equals the failed disk; collections without a fallback keep the original error.
+- A successful fallback logs a warning `Media stored to fallback disk` with both disks. If the fallback fails too, the
+  exception names both disks and keeps the main disk error as `previous`.
+- An exception thrown by the callback is logged (`Media fallback disk callback failed`) and does not undo the write.
+- `forgetMediaCollections()` drops the collections built by `addMediaCollection()`, so the next
+  `getMediaCollection()` sees the owner's new disk.
 
 ### `onCompleted` MediaConversionDefinition Callback
 

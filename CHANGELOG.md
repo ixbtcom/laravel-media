@@ -2,6 +2,12 @@
 
 All notable changes to `laravel-media` will be documented in this file.
 
+## Unreleased
+
+- Collections can declare a fallback disk: `useFallbackDisk($disk, $onFallbackStored)` /
+  `MediaCollection(fallbackDisk:, onFallbackStored:)`. A refused write is retried once on the fallback disk,
+  `media.disk` keeps the actual disk. `HasMedia::forgetMediaCollections()` resets built collections.
+
 ## v1.2.0 - 2024-05-18
 
 Add interface
