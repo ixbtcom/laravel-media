@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Elegantly\Media\Compat;
 
-use Elegantly\Media\Concerns\HasMedia;
+use Elegantly\Media\Contracts\InteractWithMedia;
 use Elegantly\Media\Models\Media;
+use Elegantly\Media\StoredFile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
-use Elegantly\Media\StoredFile;
 
 /**
  * Spatie-compatible fluent media adder.
@@ -19,7 +19,7 @@ use Elegantly\Media\StoredFile;
  * to elegantly's single-call:
  *   $model->addMedia($url, collectionName: 'covers', name: 'cover');
  *
- * @mixin HasMedia
+ * @mixin InteractWithMedia<Media>
  */
 class PendingMediaAdder
 {
@@ -27,12 +27,11 @@ class PendingMediaAdder
 
     private ?string $fileName = null;
 
+    /** @var array<string, mixed>|null */
     private ?array $metadata = null;
 
-    private bool $preserveOriginal = false;
-
     /**
-     * @param  Model&HasMedia  $model
+     * @param  Model&InteractWithMedia<Media>  $model
      * @param  string|UploadedFile|File|StoredFile|resource  $file
      */
     public function __construct(
@@ -72,8 +71,6 @@ class PendingMediaAdder
 
     public function preservingOriginal(): static
     {
-        $this->preserveOriginal = true;
-
         return $this;
     }
 

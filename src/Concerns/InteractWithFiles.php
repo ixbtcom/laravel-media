@@ -12,8 +12,8 @@ use Elegantly\Media\Helpers\File;
 use Elegantly\Media\TemporaryDirectory;
 use Elegantly\Media\UrlFormatters\AbstractUrlFormatter;
 use Illuminate\Contracts\Filesystem\Filesystem;
-use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Http\File as HttpFile;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -263,8 +263,14 @@ trait InteractWithFiles
             $arguments = [...$arguments, ...$overrides, 'MetadataDirective' => 'REPLACE'];
         }
 
+        $copyObject = [$target->getClient(), 'copyObject'];
+
+        if (! is_callable($copyObject)) {
+            return false;
+        }
+
         try {
-            $target->getClient()->copyObject($arguments);
+            call_user_func($copyObject, $arguments);
         } catch (\Throwable $e) {
             report($e);
 
@@ -274,6 +280,9 @@ trait InteractWithFiles
         return true;
     }
 
+    /**
+     * @param  array<array-key, mixed>|null  $options
+     */
     public function putFile(
         string $disk,
         string $destination,

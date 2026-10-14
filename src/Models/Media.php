@@ -28,6 +28,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Http\File as HttpFile;
@@ -42,6 +43,8 @@ use Illuminate\Support\Str;
  * @property string $uuid
  * @property string $collection_name
  * @property ?string $collection_group
+ * @property ?int $relation_id
+ * @property ?string $relation_type
  * @property ?string $average_color
  * @property ?int $order_column
  * @property ?MediaState $state
@@ -50,6 +53,8 @@ use Illuminate\Support\Str;
  * @property ?string $model_type
  * @property ?int $model_id
  * @property EloquentCollection<int, MediaConversion> $conversions
+ * @property-read ?Media $parentMedia
+ * @property-read EloquentCollection<int, Media> $relatedMedia
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property-read ?string $url
@@ -72,6 +77,9 @@ class Media extends Model
 
     protected $appends = ['url'];
 
+    /** @var array<string, true> */
+    private static array $deletingRelatedMedia = [];
+
     /**
      * @return array<string, string>
      */
@@ -81,6 +89,7 @@ class Media extends Model
             'type' => MediaType::class,
             'state' => MediaState::class,
             'metadata' => 'array',
+            'relation_id' => 'integer',
             'duration' => 'float',
             'aspect_ratio' => 'float',
         ];
@@ -107,6 +116,28 @@ class Media extends Model
     public static function booted()
     {
         static::deleting(function (Media $media) {
+            $connection = $media->getConnection();
+            $table = $media->getTable();
+            $hasRelationColumns = $connection->getSchemaBuilder()
+                ->hasColumns($table, ['relation_id', 'relation_type']);
+            $schemaKey = spl_object_id($connection).':'.$table;
+
+            if ($hasRelationColumns) {
+                $mediaKey = $schemaKey.':'.$media->id;
+                self::$deletingRelatedMedia[$mediaKey] = true;
+
+                try {
+                    foreach ($media->relatedMedia()->getQuery()->useWritePdo()->get() as $relatedMedia) {
+                        $relatedKey = $schemaKey.':'.$relatedMedia->id;
+
+                        if (! isset(self::$deletingRelatedMedia[$relatedKey])) {
+                            $relatedMedia->delete();
+                        }
+                    }
+                } finally {
+                    unset(self::$deletingRelatedMedia[$mediaKey]);
+                }
+            }
 
             $media->loadMissing('conversions');
             $media->conversions->each(fn ($conversion) => $conversion->delete());
@@ -332,6 +363,22 @@ class Media extends Model
     }
 
     /**
+     * @return BelongsTo<static, $this>
+     */
+    public function parentMedia(): BelongsTo
+    {
+        return $this->belongsTo(static::class, 'relation_id');
+    }
+
+    /**
+     * @return HasMany<static, $this>
+     */
+    public function relatedMedia(): HasMany
+    {
+        return $this->hasMany(static::class, 'relation_id');
+    }
+
+    /**
      * @return HasMany<MediaConversion, $this>
      */
     public function conversions(): HasMany
@@ -347,6 +394,7 @@ class Media extends Model
     /**
      * @param  string|UploadedFile|HttpFile|StoredFile|resource  $file
      * @param  null|(Closure(UploadedFile|HttpFile $file):(UploadedFile|HttpFile))  $before
+     * @param  array<array-key, mixed>|null  $options
      */
     public function storeFile(
         mixed $file,
@@ -392,6 +440,7 @@ class Media extends Model
 
     /**
      * @param  null|(Closure(UploadedFile|HttpFile $file, \Spatie\TemporaryDirectory\TemporaryDirectory $temporaryDirectory):(UploadedFile|HttpFile))  $before
+     * @param  array<array-key, mixed>|null  $options
      */
     public function storeFileFromHttpFile(
         UploadedFile|HttpFile $file,
@@ -594,8 +643,16 @@ class Media extends Model
 
                 try {
                     $target = fopen($local, 'wb');
-                    stream_copy_to_stream($stream, $target);
-                    fclose($target);
+
+                    if (! is_resource($target)) {
+                        throw new Exception('Unable to create a temporary media file.');
+                    }
+
+                    try {
+                        stream_copy_to_stream($stream, $target);
+                    } finally {
+                        fclose($target);
+                    }
                 } finally {
                     fclose($stream);
                 }

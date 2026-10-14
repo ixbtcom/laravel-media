@@ -5,10 +5,25 @@ declare(strict_types=1);
 use Elegantly\Media\Database\Factories\MediaFactory;
 use Elegantly\Media\Models\Media;
 use Elegantly\Media\Tests\Models\TestFallback;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use League\Flysystem\UnableToWriteFile;
+
+function prepareMediaRelationSchema(): void
+{
+    if (Schema::hasColumn('media', 'relation_id')) {
+        return;
+    }
+
+    Schema::table('media', function (Blueprint $table): void {
+        $table->unsignedBigInteger('relation_id')->nullable();
+        $table->string('relation_type', 64)->nullable();
+        $table->index(['relation_id', 'relation_type']);
+    });
+}
 
 it('stores an uploaded image', function () {
     /** @var Media $media */
@@ -331,6 +346,132 @@ it('keeps sibling files when deleting a media without the directory flag', funct
 
     Storage::disk('media')->assertMissing('videos/example/poster/poster.webp');
     Storage::disk('media')->assertExists('videos/example/poster/other.webp');
+});
+
+it('deletes ordinary media when relation columns are not installed yet', function () {
+    if (Schema::hasColumn('media', 'relation_id')) {
+        Schema::table('media', function (Blueprint $table): void {
+            $table->dropIndex(['relation_id', 'relation_type']);
+            $table->dropColumn(['relation_id', 'relation_type']);
+        });
+    }
+
+    Storage::fake('media');
+    $media = MediaFactory::new()->create([
+        'disk' => 'media',
+        'path' => 'sources/ordinary.png',
+    ]);
+    Storage::disk('media')->put($media->path, 'ordinary');
+
+    $media->delete();
+
+    expect(Media::query()->where('id', $media->id)->exists())->toBeFalse();
+    Storage::disk('media')->assertMissing($media->path);
+});
+
+it('resolves parent and related media for arbitrary relation types', function () {
+    prepareMediaRelationSchema();
+
+    $parent = MediaFactory::new()->create();
+    $child = MediaFactory::new()->create([
+        'relation_id' => $parent->id,
+        'relation_type' => 'video_cover',
+    ]);
+
+    expect($child->relation_id)->toBe($parent->id)
+        ->and($child->relation_type)->toBe('video_cover')
+        ->and($child->parentMedia->is($parent))->toBeTrue()
+        ->and($parent->relatedMedia->modelKeys())->toBe([$child->id]);
+});
+
+it('deletes related media and their files when a parent is deleted', function () {
+    prepareMediaRelationSchema();
+
+    Storage::fake('media');
+
+    $parent = MediaFactory::new()->create([
+        'disk' => 'media',
+        'path' => 'sources/parent.png',
+    ]);
+    $child = MediaFactory::new()->create([
+        'disk' => 'media',
+        'path' => 'sources/original.png',
+        'relation_id' => $parent->id,
+        'relation_type' => 'processing_source',
+    ]);
+    Storage::disk('media')->put($parent->path, 'result');
+    Storage::disk('media')->put($child->path, 'original');
+
+    $connection = $parent->getConnection();
+    $readPdo = new PDO('sqlite::memory:');
+    $readPdo->exec('CREATE TABLE media (id INTEGER PRIMARY KEY, relation_id INTEGER, relation_type TEXT)');
+    $readPdo->exec('CREATE TABLE media_conversions (id INTEGER PRIMARY KEY, media_id INTEGER)');
+    $connection->setReadPdo($readPdo);
+    $connection->forgetRecordModificationState();
+
+    try {
+        $parent->delete();
+    } finally {
+        $connection->setReadPdo(null);
+    }
+
+    expect(Media::query()->whereIn('id', [$parent->id, $child->id])->exists())->toBeFalse();
+    Storage::disk('media')->assertMissing($parent->path);
+    Storage::disk('media')->assertMissing($child->path);
+});
+
+it('keeps a parent media when a child is deleted', function () {
+    prepareMediaRelationSchema();
+
+    Storage::fake('media');
+
+    $parent = MediaFactory::new()->create([
+        'disk' => 'media',
+        'path' => 'sources/parent.png',
+    ]);
+    $child = MediaFactory::new()->create([
+        'disk' => 'media',
+        'path' => 'sources/original.png',
+        'relation_id' => $parent->id,
+        'relation_type' => 'processing_source',
+    ]);
+    Storage::disk('media')->put($parent->path, 'result');
+    Storage::disk('media')->put($child->path, 'original');
+
+    $child->delete();
+
+    expect(Media::query()->where('id', $parent->id)->exists())->toBeTrue();
+    Storage::disk('media')->assertExists($parent->path);
+    Storage::disk('media')->assertMissing($child->path);
+});
+
+it('deletes cyclic media relations without recursing indefinitely', function () {
+    prepareMediaRelationSchema();
+
+    Storage::fake('media');
+
+    $first = MediaFactory::new()->create([
+        'disk' => 'media',
+        'path' => 'sources/first.png',
+    ]);
+    $second = MediaFactory::new()->create([
+        'disk' => 'media',
+        'path' => 'sources/second.png',
+        'relation_id' => $first->id,
+        'relation_type' => 'processing_source',
+    ]);
+    $first->forceFill([
+        'relation_id' => $second->id,
+        'relation_type' => 'processing_source',
+    ])->save();
+    Storage::disk('media')->put($first->path, 'first');
+    Storage::disk('media')->put($second->path, 'second');
+
+    $first->delete();
+
+    expect(Media::query()->whereIn('id', [$first->id, $second->id])->exists())->toBeFalse();
+    Storage::disk('media')->assertMissing($first->path);
+    Storage::disk('media')->assertMissing($second->path);
 });
 
 it('adds media to the collection fallback disk when the main disk is down', function () {

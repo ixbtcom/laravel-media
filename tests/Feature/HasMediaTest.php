@@ -114,6 +114,7 @@ it('adds media from a remote disk without requiring a local path', function () {
     expect($sourceStream)->toBeResource();
 
     $remoteDisk = Mockery::mock(Filesystem::class);
+    $remoteDisk->shouldNotReceive('delete');
     $remoteDisk->shouldReceive('readStream')
         ->once()
         ->with('ai-images/generated.png')

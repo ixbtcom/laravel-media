@@ -6,6 +6,7 @@ namespace Elegantly\Media\Contracts;
 
 use Elegantly\Media\MediaCollection;
 use Elegantly\Media\Models\Media;
+use Elegantly\Media\StoredFile;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -66,9 +67,10 @@ interface InteractWithMedia
     ): ?string;
 
     /**
-     * @param  string|resource|UploadedFile|File  $file
+     * @param  string|resource|UploadedFile|File|StoredFile  $file
      * @param  array<array-key, mixed>  $metadata
      * @param  array<array-key, mixed>  $attributes
+     * @param  array<array-key, mixed>|null  $options
      * @return TMedia
      */
     public function addMedia(
