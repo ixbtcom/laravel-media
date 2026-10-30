@@ -1,0 +1,145 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH =~ /^ci\/(batch|local)-/
+    - if: $CI_COMMIT_TAG
+
+default:
+  tags: [docker]
+
+check:
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/alpine:3.20
+  timeout: 5m
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - apk add --no-cache git >/dev/null
+    - base="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-${CI_COMMIT_BEFORE_SHA:-}}"
+    - |
+      if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+        if [ "$(git rev-parse --is-shallow-repository)" != "false" ]; then
+          echo "cannot identify a root commit in a shallow clone" >&2
+          exit 1
+        fi
+        head=$(git rev-parse HEAD) || exit 1
+        ancestry=$(git rev-list --parents -n 1 HEAD) || exit 1
+        if [ "$ancestry" = "$head" ]; then
+          echo "root commit: no previous commit"
+          exit 0
+        fi
+        base=$(git rev-parse --verify HEAD^) || exit 1
+      fi
+      if [ -z "$base" ]; then
+        echo "missing diff base" >&2
+        exit 1
+      elif ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+        echo "diff base is not available in the full clone" >&2
+        exit 1
+      else
+        git diff --check "$base" HEAD
+      fi
+
+
+variables:
+  COMPOSER_ALLOW_SUPERUSER: "1"
+  COMPOSER_HOME: $CI_PROJECT_DIR/.composer-home
+  COMPOSER_CACHE_DIR: $CI_PROJECT_DIR/.cache/composer
+  XDEBUG_MODE: "off"
+
+.php:
+  retry:
+    max: 1
+    exit_codes: [100]
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/chialab/php:${PHP_RUNTIME}
+  timeout: 20m
+  cache:
+    key: composer-$CI_JOB_NAME_SLUG
+    paths:
+      - .cache/composer/
+  before_script: &php_setup
+    - mkdir -p "$COMPOSER_HOME"
+    - chmod 0700 "$COMPOSER_HOME"
+    - php --version
+    - composer --version
+    - test "$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')" = "$PHP_RUNTIME"
+    - |
+      if ! php -r 'exit(extension_loaded("pcntl") ? 0 : 1);'; then
+        install-php-extensions pcntl
+      fi
+    - php -r 'foreach (["dom","curl","libxml","mbstring","zip","pcntl","pdo","sqlite3","pdo_sqlite","bcmath","soap","intl","gd","exif","iconv","imagick","fileinfo"] as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "Missing PHP extension ".$extension."\n"); exit(1); } }'
+
+.media-tools:
+  extends: .php
+  before_script:
+    - *php_setup
+    - apt-get update -qq
+    - DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ffmpeg ghostscript imagemagick
+    - |
+      policy_found=0
+      for policy in /etc/ImageMagick-*/policy.xml; do
+        if [ -f "$policy" ]; then
+          sed -i 's/none/read|write/g' "$policy"
+          policy_found=1
+        fi
+      done
+      if [ "$policy_found" -ne 1 ]; then
+        echo "ImageMagick policy.xml was not found" >&2
+        exit 1
+      fi
+    - ffmpeg -version
+    - gs --version
+    - php --ri imagick
+
+tests:
+  extends: .media-tools
+  parallel:
+    matrix:
+      - PHP_RUNTIME: ["8.3", "8.4"]
+        LARAVEL_VERSION: ["11.*", "12.*"]
+  script:
+    - composer require "laravel/framework:$LARAVEL_VERSION" --no-interaction --no-update
+    - composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+    - composer show -D
+    - vendor/bin/pest --ci
+  artifacts:
+    when: always
+    reports:
+      junit: build/report.junit.xml
+
+phpstan:
+  extends: .php
+  variables:
+    PHP_RUNTIME: "8.4"
+  script:
+    - composer install --prefer-dist --no-interaction --no-progress
+    - vendor/bin/phpstan --error-format=table --memory-limit=1G
+
+coverage:
+  extends: .media-tools
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/chialab/php-dev:${PHP_RUNTIME}
+  variables:
+    PHP_RUNTIME: "8.4"
+    XDEBUG_MODE: coverage
+  script:
+    - php -r 'if (!extension_loaded("xdebug")) { fwrite(STDERR, "Xdebug is required for coverage\n"); exit(1); }'
+    - composer install --prefer-dist --no-interaction --no-progress
+    - vendor/bin/pest --coverage --min=50
+  artifacts:
+    when: always
+    reports:
+      junit: build/report.junit.xml
+    paths:
+      - build/logs/clover.xml
+      - build/coverage.txt
+
+pint:
+  extends: .php
+  variables:
+    PHP_RUNTIME: "8.4"
+  script:
+    - composer install --prefer-dist --no-interaction --no-progress
+    - vendor/bin/pint --test
