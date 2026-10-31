@@ -45,6 +45,7 @@ check:
 
 
 variables:
+  COMPOSER_VERSION: "2.11.1"
   COMPOSER_ALLOW_SUPERUSER: "1"
   COMPOSER_HOME: $CI_PROJECT_DIR/.composer-home
   COMPOSER_CACHE_DIR: $CI_PROJECT_DIR/.cache/composer
@@ -60,11 +61,18 @@ variables:
     key: composer-$CI_JOB_NAME_SLUG
     paths:
       - .cache/composer/
+  artifacts:
+    when: always
+    paths:
+      - build/composer-audit.json
+      - composer.lock
   before_script: &php_setup
-    - mkdir -p "$COMPOSER_HOME"
+    - mkdir -p "$COMPOSER_HOME" build
     - chmod 0700 "$COMPOSER_HOME"
     - php --version
+    - composer self-update "$COMPOSER_VERSION" --no-interaction
     - composer --version
+    - test "$(composer --version --no-ansi | cut -d' ' -f3)" = "$COMPOSER_VERSION"
     - test "$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')" = "$PHP_RUNTIME"
     - |
       if ! php -r 'exit(extension_loaded("pcntl") ? 0 : 1);'; then
@@ -98,15 +106,20 @@ tests:
   extends: .media-tools
   parallel:
     matrix:
-      - PHP_RUNTIME: ["8.3", "8.4"]
-        LARAVEL_VERSION: ["11.*", "12.*"]
+      - PHP_RUNTIME: ["8.4", "8.5"]
+        LARAVEL_VERSION: ["13.*"]
   script:
     - composer require "laravel/framework:$LARAVEL_VERSION" --no-interaction --no-update
     - composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+    - composer audit --format=json > build/composer-audit.json
     - composer show -D
-    - vendor/bin/pest --ci
+    - php -r 'require "vendor/autoload.php"; if (explode(".", Illuminate\Foundation\Application::VERSION)[0] !== "13") { exit(1); }'
+    - vendor/bin/pest --ci --no-coverage
   artifacts:
     when: always
+    paths:
+      - build/composer-audit.json
+      - composer.lock
     reports:
       junit: build/report.junit.xml
 
@@ -116,6 +129,7 @@ phpstan:
     PHP_RUNTIME: "8.4"
   script:
     - composer install --prefer-dist --no-interaction --no-progress
+    - composer audit --format=json > build/composer-audit.json
     - vendor/bin/phpstan --error-format=table --memory-limit=1G
 
 coverage:
@@ -127,12 +141,15 @@ coverage:
   script:
     - php -r 'if (!extension_loaded("xdebug")) { fwrite(STDERR, "Xdebug is required for coverage\n"); exit(1); }'
     - composer install --prefer-dist --no-interaction --no-progress
+    - composer audit --format=json > build/composer-audit.json
     - vendor/bin/pest --coverage --min=50
   artifacts:
     when: always
     reports:
       junit: build/report.junit.xml
     paths:
+      - build/composer-audit.json
+      - composer.lock
       - build/logs/clover.xml
       - build/coverage.txt
 
@@ -142,4 +159,5 @@ pint:
     PHP_RUNTIME: "8.4"
   script:
     - composer install --prefer-dist --no-interaction --no-progress
+    - composer audit --format=json > build/composer-audit.json
     - vendor/bin/pint --test

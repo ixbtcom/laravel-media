@@ -3,6 +3,25 @@
 > **Форк `ixbtcom/laravel-media`** (база — upstream `elegantly/laravel-media` v4.7.1, namespace `Elegantly\Media` сохранён); в ixbtwire/ixbtadmin подключается локально через composer `repositories`, не с Packagist.
 > Ниже — README upstream. Отличия форка (Spatie-compat слой, `IdPathGenerator`, pending-Media, убранный `spatie/pdf-to-image` — PDF-конверсии не поддерживаются) и gotchas — в [`CLAUDE.md`](CLAUDE.md).
 
+## Проверка форка
+
+Тестовый harness использует Laravel 13, Testbench 11, Pest 4 и PHPUnit 12.
+CI выполняет настоящие media-тесты на PHP 8.4 и 8.5; опубликованные ограничения
+пакета для потребителей сохранены. Нужны ffmpeg, Ghostscript, ImageMagick и Imagick.
+PDF-конверсии без удалённой зависимости `spatie/pdf-to-image` остаются неподдерживаемыми.
+
+Оба CI закрепляют Composer 2.11.1 с включённой security policy и stable-зависимостями.
+`composer audit --format=json` должен завершаться успешно; audit JSON и разрешённый
+`composer.lock` сохраняются как artifacts. Исключений advisories нет.
+Покрытие на PHP 8.4/Xdebug должно быть не ниже 50%; Pint выполняется в режиме `--test`.
+GitHub и GitLab выполняют проверки в одноразовых `chialab/php`/`php-dev` контейнерах
+на собственных Linux/Docker runners. Media tools и ImageMagick policy
+настраиваются внутри контейнера каждого задания.
+
+Локальные команды: `composer update`, `composer audit`, `composer test`,
+`composer analyse`, `vendor/bin/pint --test`. Полную media/coverage проверку выполнять
+на Linux с перечисленными инструментами.
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/elegantly/laravel-media.svg?style=flat-square)](https://packagist.org/packages/elegantly/laravel-media)
 [![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/ElegantEngineeringTech/laravel-media/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/ElegantEngineeringTech/laravel-media/actions?query=workflow%3Arun-tests+branch%3Amain)
 [![GitHub Coverage Action Status](https://img.shields.io/github/actions/workflow/status/ElegantEngineeringTech/laravel-media/coverage.yml?branch=main&label=coverage&style=flat-square)](https://github.com/ElegantEngineeringTech/laravel-media/actions?query=workflow%3Acoverage+branch%3Amain)

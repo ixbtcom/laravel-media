@@ -10,61 +10,92 @@ on:
       - "composer.json"
       - "composer.lock"
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    runs-on: [self-hosted, Linux, X64, docker]
+    container: chialab/php:${{ matrix.php }}
+    env:
+      COMPOSER_ALLOW_SUPERUSER: "1"
+      COMPOSER_HOME: ${{ github.workspace }}/.composer-home
+      COMPOSER_VERSION: "2.11.1"
+      PHP_RUNTIME: ${{ matrix.php }}
+      XDEBUG_MODE: "off"
+    timeout-minutes: 20
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest]
-        php: [8.4, 8.3]
-        laravel: [11.*, 12.*]
+        php: [8.4, 8.5]
+        laravel: [13.*]
         stability: [prefer-stable]
 
-    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
+    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup ffmpeg
-        uses: AnimMouse/setup-ffmpeg@v1
-
-      - run: "ffmpeg -version"
-
-      - name: Upgrade ghostscript
+      - name: Prepare PHP container
         run: |
-          sudo apt-get update
-          sudo apt-get install ghostscript
+          mkdir -p "$COMPOSER_HOME" build
+          chmod 0700 "$COMPOSER_HOME"
+          php --version
+          composer self-update "$COMPOSER_VERSION" --no-interaction
+          composer --version
+          test "$(composer --version --no-ansi | cut -d' ' -f3)" = "$COMPOSER_VERSION"
+          test "$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')" = "$PHP_RUNTIME"
+          if ! php -r 'exit(extension_loaded("pcntl") ? 0 : 1);'; then
+            install-php-extensions pcntl
+          fi
+          for extension in dom curl libxml mbstring zip pcntl pdo sqlite3 pdo_sqlite bcmath soap intl gd exif iconv imagick fileinfo; do
+            if ! php -r "exit(extension_loaded('$extension') ? 0 : 1);"; then
+              echo "Missing PHP extension $extension" >&2
+              exit 1
+            fi
+          done
 
-      - name: Upgrade ImageMagick
+      - name: Prepare media tools inside container
         run: |
-          sudo apt-get update
-          sudo apt-get install imagemagick
-
-      - name: Fix Imagick Policy
-        run: sudo sed -i 's/none/read|write/g' /etc/ImageMagick-6/policy.xml
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
-          coverage: none
-
-      - name: Setup problem matchers
-        run: |
-          echo "::add-matcher::${{ runner.tool_cache }}/php.json"
-          echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ffmpeg ghostscript imagemagick
+          policy_found=0
+          for policy in /etc/ImageMagick-*/policy.xml; do
+            if [ -f "$policy" ]; then
+              sed -i 's/none/read|write/g' "$policy"
+              policy_found=1
+            fi
+          done
+          if [ "$policy_found" -ne 1 ]; then
+            echo "ImageMagick policy.xml was not found" >&2
+            exit 1
+          fi
+          ffmpeg -version
+          gs --version
+          php --ri imagick
 
       - name: Install dependencies
         run: |
+          mkdir -p build
+          composer --version
           composer require "laravel/framework:${{ matrix.laravel }}" --no-interaction --no-update
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
+
+      - name: Audit dependencies
+        run: composer audit --format=json > build/composer-audit.json
 
       - name: List Installed Dependencies
         run: composer show -D
 
       - name: Execute tests
-        run: vendor/bin/pest --ci
+        run: vendor/bin/pest --ci --no-coverage
+      - name: Preserve dependency audit and test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-php${{ matrix.php }}-laravel13
+          path: |
+            build/composer-audit.json
+            build/report.junit.xml
+            composer.lock
