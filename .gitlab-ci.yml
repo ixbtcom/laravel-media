@@ -12,7 +12,7 @@ default:
   tags: [docker]
 
 check:
-  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/alpine:3.20
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/alpine:3.24
   timeout: 5m
   variables:
     GIT_DEPTH: "0"
@@ -106,7 +106,7 @@ tests:
   extends: .media-tools
   parallel:
     matrix:
-      - PHP_RUNTIME: ["8.4", "8.5"]
+      - PHP_RUNTIME: ["8.5"]
         LARAVEL_VERSION: ["13.*"]
   script:
     - composer require "laravel/framework:$LARAVEL_VERSION" --no-interaction --no-update
@@ -126,7 +126,7 @@ tests:
 phpstan:
   extends: .php
   variables:
-    PHP_RUNTIME: "8.4"
+    PHP_RUNTIME: "8.5"
   script:
     - composer install --prefer-dist --no-interaction --no-progress
     - composer audit --format=json > build/composer-audit.json
@@ -136,7 +136,7 @@ coverage:
   extends: .media-tools
   image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/chialab/php-dev:${PHP_RUNTIME}
   variables:
-    PHP_RUNTIME: "8.4"
+    PHP_RUNTIME: "8.5"
     XDEBUG_MODE: coverage
   script:
     - php -r 'if (!extension_loaded("xdebug")) { fwrite(STDERR, "Xdebug is required for coverage\n"); exit(1); }'
@@ -156,7 +156,7 @@ coverage:
 pint:
   extends: .php
   variables:
-    PHP_RUNTIME: "8.4"
+    PHP_RUNTIME: "8.5"
   script:
     - composer install --prefer-dist --no-interaction --no-progress
     - composer audit --format=json > build/composer-audit.json
