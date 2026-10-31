@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Elegantly\Media\Database\Factories\MediaFactory;
 use Elegantly\Media\Helpers\File;
 use Elegantly\Media\Models\Media;
+use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Http\File as HttpFile;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -84,4 +85,48 @@ it('transforms a file and delete the original one', function () {
 
     Storage::disk('media')->assertExists($path);
 
+});
+
+it('keeps the source content type when a server-side copy replaces metadata', function () {
+    $client = new class
+    {
+        /** @var array<int, array<string, mixed>> */
+        public array $copies = [];
+
+        /** @param array<string, mixed> $arguments */
+        public function headObject(array $arguments): array
+        {
+            return ['ContentType' => 'application/pdf'];
+        }
+
+        /** @param array<string, mixed> $arguments */
+        public function copyObject(array $arguments): array
+        {
+            $this->copies[] = $arguments;
+
+            return [];
+        }
+    };
+
+    foreach (['temp' => 'temp-bucket', 'files' => 'files-bucket'] as $disk => $bucket) {
+        config()->set("filesystems.disks.{$disk}", ['driver' => 's3', 'bucket' => $bucket, 'endpoint' => 'https://s3.example.test']);
+
+        $adapter = Mockery::mock(AwsS3V3Adapter::class);
+        $adapter->shouldReceive('getClient')->andReturn($client);
+        $adapter->shouldReceive('mimeType')->andReturn('application/pdf');
+        $adapter->shouldReceive('size')->andReturn(10);
+        Storage::set($disk, $adapter);
+    }
+
+    /** @var Media $media */
+    $media = MediaFactory::new()->make();
+
+    $path = $media->putFileFromDisk('temp', 'uploads/doc.pdf', 'files', 'docs', 'doc', [
+        'ContentDisposition' => 'attachment; filename="doc.pdf"',
+    ]);
+
+    expect($path)->toBe('docs/doc.pdf')
+        ->and($client->copies)->toHaveCount(1)
+        ->and($client->copies[0]['MetadataDirective'])->toBe('REPLACE')
+        ->and($client->copies[0]['ContentType'] ?? null)->toBe('application/pdf');
 });

@@ -260,6 +260,22 @@ trait InteractWithFiles
         );
 
         if ($overrides !== []) {
+            // REPLACE заменяет все метаданные: без явного типа объект стал бы
+            // octet-stream, поэтому тип исходника переносится сам.
+            if (! isset($overrides['ContentType'])) {
+                try {
+                    $contentType = $source->getClient()->headObject(['Bucket' => $sourceBucket, 'Key' => $sourcePath])['ContentType'] ?? null;
+                } catch (\Throwable $e) {
+                    report($e);
+
+                    return false;
+                }
+
+                if (is_string($contentType) && $contentType !== '') {
+                    $overrides['ContentType'] = $contentType;
+                }
+            }
+
             $arguments = [...$arguments, ...$overrides, 'MetadataDirective' => 'REPLACE'];
         }
 
