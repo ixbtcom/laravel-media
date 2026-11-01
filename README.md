@@ -1,20 +1,21 @@
 # Extremely powerful media library for Laravel 🖼️
 
 > **Форк `ixbtcom/laravel-media`** (база — upstream `elegantly/laravel-media` v4.7.1, namespace `Elegantly\Media` сохранён); в ixbtwire/ixbtadmin подключается локально через composer `repositories`, не с Packagist.
+> Канонический исходник форка — [GitLab](https://glab.ixbt.site/packages/laravel-media), ветка `master`. Для VCS-установки с доступом к GitLab выполните `composer config repositories.laravel-media vcs https://glab.ixbt.site/packages/laravel-media.git`, затем `composer require ixbtcom/laravel-media:dev-master`.
 > Ниже — README upstream. Отличия форка (Spatie-compat слой, `IdPathGenerator`, pending-Media, убранный `spatie/pdf-to-image` — PDF-конверсии не поддерживаются) и gotchas — в [`CLAUDE.md`](CLAUDE.md).
 
 ## Проверка форка
 
 Тестовый harness использует Laravel 13, Testbench 11, Pest 4 и PHPUnit 12.
-CI выполняет настоящие media-тесты на PHP 8.4 и 8.5; опубликованные ограничения
+Канонический GitLab CI (`.gitlab-ci.yml`) выполняет настоящие media-тесты на PHP 8.5; опубликованные ограничения
 пакета для потребителей сохранены. Нужны ffmpeg, Ghostscript, ImageMagick и Imagick.
 PDF-конверсии без удалённой зависимости `spatie/pdf-to-image` остаются неподдерживаемыми.
 
-Оба CI закрепляют Composer 2.11.1 с включённой security policy и stable-зависимостями.
+GitLab CI закрепляет Composer 2.11.1 с включённой security policy и stable-зависимостями.
 `composer audit --format=json` должен завершаться успешно; audit JSON и разрешённый
 `composer.lock` сохраняются как artifacts. Исключений advisories нет.
-Покрытие на PHP 8.4/Xdebug должно быть не ниже 50%; Pint выполняется в режиме `--test`.
-GitHub и GitLab выполняют проверки в одноразовых `chialab/php`/`php-dev` контейнерах
+Покрытие на PHP 8.5/Xdebug должно быть не ниже 50%; Pint выполняется в режиме `--test`.
+GitLab выполняет проверки в одноразовых `chialab/php`/`php-dev` контейнерах
 на собственных Linux/Docker runners. Media tools и ImageMagick policy
 настраиваются внутри контейнера каждого задания.
 
