@@ -130,3 +130,42 @@ it('keeps the source content type when a server-side copy replaces metadata', fu
         ->and($client->copies[0]['MetadataDirective'])->toBe('REPLACE')
         ->and($client->copies[0]['ContentType'] ?? null)->toBe('application/pdf');
 });
+
+it('falls back without copying when S3 metadata is not a string', function (string $option, mixed $value) {
+    $client = new class
+    {
+        public int $copies = 0;
+
+        public function headObject(array $arguments): array
+        {
+            return ['ContentType' => 'application/pdf'];
+        }
+
+        public function copyObject(array $arguments): array
+        {
+            $this->copies++;
+
+            return [];
+        }
+    };
+
+    foreach (['temp' => 'temp-bucket', 'files' => 'files-bucket'] as $disk => $bucket) {
+        config()->set("filesystems.disks.{$disk}", ['driver' => 's3', 'bucket' => $bucket, 'endpoint' => 'https://s3.example.test']);
+
+        $adapter = Mockery::mock(AwsS3V3Adapter::class);
+        $adapter->shouldReceive('getClient')->andReturn($client);
+        $adapter->shouldReceive('mimeType')->andReturn('application/pdf');
+        $adapter->shouldReceive('size')->andReturn(10);
+        Storage::set($disk, $adapter);
+    }
+
+    $media = MediaFactory::new()->make();
+
+    expect($media->putFileFromDisk('temp', 'uploads/doc.pdf', 'files', 'docs', 'doc', [$option => $value]))
+        ->toBeFalse()
+        ->and($client->copies)->toBe(0);
+})->with([
+    'null content type' => ['ContentType', null],
+    'array disposition' => ['ContentDisposition', ['attachment']],
+    'boolean cache control' => ['CacheControl', false],
+]);

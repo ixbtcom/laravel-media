@@ -259,6 +259,30 @@ trait InteractWithFiles
             ['ContentType' => true, 'ContentDisposition' => true, 'CacheControl' => true],
         );
 
+        if (array_key_exists('ContentType', $overrides)) {
+            if (! is_string($overrides['ContentType'])) {
+                return false;
+            }
+
+            $arguments['ContentType'] = $overrides['ContentType'];
+        }
+
+        if (array_key_exists('ContentDisposition', $overrides)) {
+            if (! is_string($overrides['ContentDisposition'])) {
+                return false;
+            }
+
+            $arguments['ContentDisposition'] = $overrides['ContentDisposition'];
+        }
+
+        if (array_key_exists('CacheControl', $overrides)) {
+            if (! is_string($overrides['CacheControl'])) {
+                return false;
+            }
+
+            $arguments['CacheControl'] = $overrides['CacheControl'];
+        }
+
         if ($overrides !== []) {
             // REPLACE заменяет все метаданные: без явного типа объект стал бы
             // octet-stream, поэтому тип исходника переносится сам.
@@ -272,21 +296,15 @@ trait InteractWithFiles
                 }
 
                 if (is_string($contentType) && $contentType !== '') {
-                    $overrides['ContentType'] = $contentType;
+                    $arguments['ContentType'] = $contentType;
                 }
             }
 
-            $arguments = [...$arguments, ...$overrides, 'MetadataDirective' => 'REPLACE'];
-        }
-
-        $copyObject = [$target->getClient(), 'copyObject'];
-
-        if (! is_callable($copyObject)) {
-            return false;
+            $arguments['MetadataDirective'] = 'REPLACE';
         }
 
         try {
-            call_user_func($copyObject, $arguments);
+            $target->getClient()->copyObject($arguments);
         } catch (\Throwable $e) {
             report($e);
 
