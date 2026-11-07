@@ -108,6 +108,49 @@ class Media extends Model
         return $this->state === MediaState::Pending;
     }
 
+    /**
+     * Записать метаданные изображения, полученные из imagor `/meta`
+     * (размеры, ThumbHash и основной цвет приходят одним запросом).
+     * Пустые значения не затирают уже сохранённые.
+     *
+     * @param  array{width?: int, height?: int, mime?: string|null, thumbhash?: string|null, average_color?: array{r: int, g: int, b: int}|null}  $meta
+     * @return bool были ли изменения
+     */
+    public function applyImageMeta(array $meta): bool
+    {
+        $changed = false;
+
+        $width = (int) ($meta['width'] ?? 0);
+        $height = (int) ($meta['height'] ?? 0);
+        if ($width > 0 && $height > 0 && ((int) $this->width !== $width || (int) $this->height !== $height)) {
+            $this->width = $width;
+            $this->height = $height;
+            $this->aspect_ratio = round($width / $height, 2);
+            $changed = true;
+        }
+
+        $thumbhash = $meta['thumbhash'] ?? null;
+        if (is_string($thumbhash) && $thumbhash !== '') {
+            $metadata = is_array($this->metadata) ? $this->metadata : [];
+            if (($metadata['thumbhash'] ?? null) !== $thumbhash) {
+                $metadata['thumbhash'] = $thumbhash;
+                $this->metadata = $metadata;
+                $changed = true;
+            }
+        }
+
+        $color = $meta['average_color'] ?? null;
+        if (is_array($color) && isset($color['r'], $color['g'], $color['b'])) {
+            $hex = sprintf('#%02x%02x%02x', (int) $color['r'], (int) $color['g'], (int) $color['b']);
+            if ($this->average_color !== $hex) {
+                $this->average_color = $hex;
+                $changed = true;
+            }
+        }
+
+        return $changed;
+    }
+
     public function rightsEvidence(): MediaRightsEvidence
     {
         return MediaRightsEvidence::fromMetadata($this->metadata);
