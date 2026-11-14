@@ -113,7 +113,7 @@ class Media extends Model
      * (размеры, ThumbHash и основной цвет приходят одним запросом).
      * Пустые значения не затирают уже сохранённые.
      *
-     * @param  array{width?: int, height?: int, mime?: string|null, thumbhash?: string|null, average_color?: array{r: int, g: int, b: int}|null}  $meta
+     * @param  array{width?: int, height?: int, mime?: string|null, thumbhash?: string|null, average_color?: array{r?: int, g?: int, b?: int}|null}  $meta
      * @return bool были ли изменения
      */
     public function applyImageMeta(array $meta): bool
