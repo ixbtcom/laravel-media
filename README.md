@@ -2,7 +2,7 @@
 
 > **Форк `ixbtcom/laravel-media`** (база — upstream `elegantly/laravel-media` v4.7.1, namespace `Elegantly\Media` сохранён); в ixbtwire/ixbtadmin подключается локально через composer `repositories`, не с Packagist.
 > Канонический исходник форка — [GitLab](https://glab.ixbt.site/packages/laravel-media), ветка `master`. Для VCS-установки с доступом к GitLab выполните `composer config repositories.laravel-media vcs https://glab.ixbt.site/packages/laravel-media.git`, затем `composer require ixbtcom/laravel-media:dev-master`.
-> Ниже — README upstream. Отличия форка (Spatie-compat слой, `IdPathGenerator`, pending-Media, убранный `spatie/pdf-to-image` — PDF-конверсии не поддерживаются) и gotchas — в [`CLAUDE.md`](CLAUDE.md).
+> Ниже — README upstream. Отличия форка (Spatie-compat слой, `IdPathGenerator`, pending-Media, убранный генератор конверсий: `Converters/*`, `MediaConversionDefinition`, `MediaZipper`, `Cloudflare*UrlFormatter` — разделы про них ниже не применимы, коммит `8d4ea1d`) и gotchas — в [`CLAUDE.md`](CLAUDE.md).
 
 ## Проверка форка
 
