@@ -40,4 +40,10 @@ TDD: красный → зелёный → рефакторинг.
 
 <!-- project-specific:body -->
 TODO: архитектура, точки входа, gotchas, env-переменные
+
+### Доставка на прод
+
+Пакет доезжает деплоем приложений: push пакета, затем `make -C ~/code/xcom/deploy deploy PROJECT=<p>`
+(нода делает `composer update`). Руками по SSH не деплоить. Команды и доступ к Ploi -
+`../deploy/AGENTS.md`, раздел «Деплой ixbtwire и ixbtadmin».
 <!-- /project-specific:body -->
